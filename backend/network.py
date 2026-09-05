@@ -56,7 +56,7 @@ class Feeder:
         # power-flow model. See geo.py.
         self._geo_coords = geo.compute_synthetic_coordinates(self.graph)
 
-    #  CIM-ish graph construction 
+    #  CIM-ish graph construction
     def _build_graph(self) -> nx.Graph:
         g = nx.Graph()
         for _, row in self.net.bus.iterrows():
@@ -119,7 +119,7 @@ class Feeder:
         """Solar-specific convenience wrapper around apply_uniform_adoption (kept for the sweep default and any existing callers)."""
         self.apply_uniform_adoption("solar", adoption_pct, oversize_ratio)
 
-    # ---------- Power flow ----------
+    #  Power flow
     def run_powerflow(self):
         pp.runpp(self.net, algorithm="nr")
         return self.status_report()
@@ -201,6 +201,3 @@ class Feeder:
         if status_report is None:
             status_report = self.run_powerflow()
         return geo.build_geojson(self, status_report)
-
-
-
