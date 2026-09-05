@@ -26,6 +26,23 @@ gridtwin/
 
 ```
 
+**Backend**
+```bash
+cd backend
+# Activate the virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install requirements cleanly
+pip3 install -r requirements.txt
+
+pip3 install pandapower fastapi uvicorn
+uvicorn main:app --reload --port 8000
+```
+
+# test suite
+pytest -v
+
 
 ## API
 
