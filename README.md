@@ -30,17 +30,6 @@ docker compose up --build
 # visit http://localhost:8000
 ```
 
-**Without Docker, backend + frontend as one process**
-```bash
-cd backend
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
-# visit http://localhost:8000 - main.py serves frontend/ itself
-```
-
-**Without Docker, backend and frontend as two separate dev servers**
-(useful for editing the frontend without restarting the backend)
 ```bash
 # Backend
 cd backend && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && uvicorn main:app --reload --port 8000
@@ -54,11 +43,6 @@ cd frontend && python3 -m http.server 8080
 ```bash
 cd backend && source venv/bin/activate && pytest -v
 ```
-
-The frontend reads its API base URL from `frontend/config.js` (empty
-string = same origin as the page, which is what the two single-process
-setups above need; set it to `http://localhost:8000` for the split
-dev-server setup).
 
 ## API
 
