@@ -1,26 +1,29 @@
 """
 GridTwin API
 """
-
+import os
 import threading
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from network import Feeder
+
 app = FastAPI(title="GridTwin API", version="0.1.0")
 
-
-
+_default_origins = [
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+_extra_origins = [o.strip() for o in os.environ.get("GRIDTWIN_CORS_ORIGINS", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=_default_origins + _extra_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -172,3 +175,9 @@ def api_grid_hosting_capacity(req: HostingCapacityRequest):
 
     with _feeder_lock:
         return _safe(go)
+_frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+if _frontend_dir.is_dir():
+    print(f"[gridtwin] serving frontend from {_frontend_dir}")
+    app.mount("/", StaticFiles(directory=str(_frontend_dir), html=True), name="frontend")
+else:
+    print(f"[gridtwin] WARNING: frontend dir not found at {_frontend_dir} - API only, no UI mounted")
