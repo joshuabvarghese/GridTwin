@@ -66,6 +66,30 @@
   .legend .item { display: flex; align-items: center; gap: 6px; color: var(--ink-dim); }
   .legend .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .legend .line { width: 14px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+  .toggle-group { display: flex; gap: 6px; margin-bottom: 14px; }
+  .toggle-btn {
+    flex: 1; padding: 7px 0; background: transparent; border: 1px solid var(--panel-line);
+    color: var(--ink-dim); font-family: var(--sans); font-size: 12.5px; border-radius: 3px; cursor: pointer;
+  }
+  .toggle-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(79,209,197,0.08); }
+  .slider-row .val { font-family: var(--mono); color: var(--accent); font-size: 22px; }
+  input[type=range] {
+    width: 100%; -webkit-appearance: none; height: 4px; border-radius: 2px;
+    background: var(--panel-line); margin-top: 10px;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent); cursor: pointer; border: 2px solid #0a0f14;
+  }
+  .btn {
+    width: 100%; padding: 9px 0; background: transparent; border: 1px solid var(--panel-line);
+    color: var(--ink); font-family: var(--sans); font-size: 13px; border-radius: 3px; cursor: pointer;
+    margin-top: 10px;
+  }
+  .btn:hover { border-color: var(--ink-dim); }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn.primary { border-color: var(--accent); color: var(--accent); }
+  .btn.primary:hover:not(:disabled) { background: rgba(79,209,197,0.08); }
 </style>
 </head>
 <body>
@@ -157,6 +181,33 @@ function App() {
   const maxLoading = status ? Math.max(...status.lines.map(l => l.loading_percent)).toFixed(1) : "—";
   const selectedBusInfo = status && selectedNode !== null ? status.buses.find(b => b.node_id === selectedNode) : null;
 
+  const runSlider = (pct, kind) => {
+    setLoading(true); setError(null);
+    postJSON("/adoption-slider", { adoption_pct: pct, kind })
+      .then(r => { if (!r.ok) throw new Error("simulation failed"); return r.json(); })
+      .then(setStatus).catch(e => setError(e.message)).finally(() => setLoading(false));
+  };
+
+  const onSliderChange = (v) => {
+    setAdoption(v);
+    if (sliderTimer.current) clearTimeout(sliderTimer.current);
+    sliderTimer.current = setTimeout(() => runSlider(v, derKind), 180);
+  };
+  const onKindChange = (k) => {
+    setDerKind(k);
+    if (sliderTimer.current) { clearTimeout(sliderTimer.current); sliderTimer.current = null; }
+    runSlider(adoption, k);
+  };
+  const resetAll = () => {
+    setAdoption(0);
+    setSwitchStates({});
+    setTimelineActive(false);
+    setTimeOfDay(12);
+    fetch(`${API}/reset`, { method: "POST" }).then(r => r.json()).then(setStatus);
+    if (view === "map") setTimeout(fetchGeojson, 250);
+    pushToast("Reset to baseline");
+  };
+
   return (
     <div className="app">
       <div className="header">
@@ -191,20 +242,20 @@ function App() {
           </div>
 
           <div className="card">
-            <h2>Selected node</h2>
-            {selectedBusInfo ? (
-              <div style={{fontSize:"12.5px", color:"var(--ink-dim)"}}>
-                <div>Bus <b style={{color:"var(--ink)"}}>N{selectedBusInfo.node_id}</b></div>
-                <div>Voltage: <b style={{color: statusColor(selectedBusInfo.status)}}>{selectedBusInfo.vm_pu} pu</b></div>
-                <div>Status: <b style={{color: statusColor(selectedBusInfo.status)}}>{selectedBusInfo.status}</b></div>
-              </div>
-            ) : (
-              <div style={{fontSize:"12.5px", color:"var(--ink-dim)"}}>Click a node to inspect it.</div>
-            )}
+            <h2>DER adoption</h2>
+            <div className="toggle-group">
+              <button className={`toggle-btn ${derKind === "solar" ? "active" : ""}`}
+                      onClick={() => onKindChange("solar")}>Rooftop solar</button>
+              <button className={`toggle-btn ${derKind === "ev" ? "active" : ""}`}
+                      onClick={() => onKindChange("ev")}>EV charging</button>
+            </div>
+            <div className="slider-row">
+              <span className="val">{adoption}%</span>
+              <input type="range" min="0" max="100" step="5" value={adoption}
+                onChange={e => onSliderChange(Number(e.target.value))} />
+            </div>
+            <button className="btn" onClick={resetAll} disabled={loading}>Reset to baseline</button>
           </div>
-        </div>
-      </div>
-    </div>
   );
 }
 
