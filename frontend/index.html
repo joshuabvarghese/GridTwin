@@ -26,55 +26,105 @@
     --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
     --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
+  @font-face{font-family:'IBM Plex Sans';src:local('Arial');}
   * { box-sizing: border-box; }
   html, body, #root { height: 100%; margin: 0; }
   body {
     background: var(--bg);
     color: var(--ink);
     font-family: var(--sans);
+    background-image:
+      radial-gradient(circle at 15% 10%, rgba(79,209,197,0.05), transparent 40%),
+      linear-gradient(var(--panel-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--panel-line) 1px, transparent 1px);
+    background-size: auto, 48px 48px, 48px 48px;
+    background-position: 0 0, -1px -1px, -1px -1px;
   }
   .app { display: flex; flex-direction: column; height: 100vh; }
+
   .header {
     display: flex; align-items: baseline; justify-content: space-between;
     padding: 20px 28px; border-bottom: 1px solid var(--panel-line);
     background: rgba(10,15,20,0.85); backdrop-filter: blur(6px);
   }
-  .header h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  .header h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 0.2px; }
   .header h1 .feeder { color: var(--ink-dim); font-weight: 400; }
   .header .sub { color: var(--ink-dim); font-size: 12.5px; font-family: var(--mono); }
+  .header .sub.error { color: var(--overload); }
+
   .main { flex: 1; display: grid; grid-template-columns: 1fr 340px; overflow: hidden; }
+
   .graph-wrap { position: relative; border-right: 1px solid var(--panel-line); }
-  #cy { width: 100%; height: 100%; }
-  .panel { padding: 22px; overflow-y: auto; display: flex; flex-direction: column; gap: 22px; }
-  .card {
-    background: var(--panel); border: 1px solid var(--panel-line);
-    border-radius: 4px; padding: 16px;
+
+  .view-container { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .view-container.hidden { visibility: hidden; pointer-events: none; z-index: 1; }
+  .view-container.visible { visibility: visible; pointer-events: auto; z-index: 2; }
+  #cy, #map { width: 100%; height: 100%; }
+  #map { background: var(--bg); }
+
+  .map-loading {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--ink-dim); font-family: var(--mono); font-size: 12.5px; background: var(--bg);
   }
-  .card h2 {
-    margin: 0 0 12px; font-size: 11px; letter-spacing: 0.06em;
-    color: var(--ink-dim); text-transform: uppercase;
+
+  .view-toggle {
+    position: absolute; top: 14px; left: 18px; z-index: 500;
+    display: flex; gap: 4px; background: rgba(16,24,32,0.9);
+    border: 1px solid var(--panel-line); border-radius: 4px; padding: 3px;
   }
-  .stat-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
-  .stat-label { color: var(--ink-dim); font-size: 13px; }
-  .stat-value { font-family: var(--mono); font-size: 15px; }
-  .violations-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-family: var(--mono); font-size: 12px; }
-  .violations-badge.zero { background: rgba(62,207,126,0.12); color: var(--normal); }
-  .violations-badge.nonzero { background: rgba(226,73,61,0.12); color: var(--overload); }
+  .view-toggle button {
+    padding: 6px 14px; background: transparent; border: none; border-radius: 3px;
+    color: var(--ink-dim); font-family: var(--sans); font-size: 12.5px; cursor: pointer;
+  }
+  .view-toggle button.active { background: rgba(79,209,197,0.12); color: var(--accent); }
+
   .legend {
-    position: absolute; bottom: 18px; left: 18px; z-index: 10;
+    position: absolute; bottom: 18px; left: 18px; z-index: 500;
     background: rgba(16,24,32,0.9); border: 1px solid var(--panel-line);
     border-radius: 3px; padding: 10px 14px; font-size: 12px; font-family: var(--mono);
-    display: flex; gap: 16px; flex-wrap: wrap;
+    display: flex; gap: 16px; flex-wrap: wrap; max-width: calc(100% - 36px);
   }
-  .legend .item { display: flex; align-items: center; gap: 6px; color: var(--ink-dim); }
+  .legend .item { display: flex; align-items: center; gap: 6px; color: var(--ink-dim); white-space: nowrap; }
   .legend .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .legend .line { width: 14px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+  .legend .line.dashed { background: none !important; border-top: 2px dashed var(--accent); height: 0; }
+
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+    background: var(--panel); color: var(--ink); border: 1px solid var(--panel-line);
+  }
+  .leaflet-popup-content { font-family: var(--mono); font-size: 12px; margin: 10px 12px; line-height: 1.6; }
+  .leaflet-popup-content b { color: var(--accent); }
+  .leaflet-container { background: var(--bg); }
+  .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) saturate(0.8); }
+  .leaflet-control-zoom { filter: invert(1) hue-rotate(180deg); }
+  .leaflet-control-zoom a { color: #1c2830 !important; }
+
+  .panel { padding: 22px 22px 22px; overflow-y: auto; display: flex; flex-direction: column; gap: 22px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--panel-line);
+    border-radius: 4px; padding: 16px 16px 18px;
+    transition: opacity 0.2s;
+  }
+  .card.hidden { display: none; }
+  .card h2 {
+    margin: 0 0 12px; font-size: 11px; letter-spacing: 0.06em; font-weight: 600;
+    color: var(--ink-dim); text-transform: uppercase;
+  }
+  .card .caption { font-size: 11.5px; color: var(--ink-dim); margin-top: 10px; line-height: 1.5; }
+
+  .stat-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .stat-row:last-child { margin-bottom: 0; }
+  .stat-label { color: var(--ink-dim); font-size: 13px; }
+  .stat-value { font-family: var(--mono); font-size: 15px; }
+
   .toggle-group { display: flex; gap: 6px; margin-bottom: 14px; }
   .toggle-btn {
     flex: 1; padding: 7px 0; background: transparent; border: 1px solid var(--panel-line);
     color: var(--ink-dim); font-family: var(--sans); font-size: 12.5px; border-radius: 3px; cursor: pointer;
   }
   .toggle-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(79,209,197,0.08); }
+
+  .slider-row { margin-bottom: 4px; }
   .slider-row .val { font-family: var(--mono); color: var(--accent); font-size: 22px; }
   input[type=range] {
     width: 100%; -webkit-appearance: none; height: 4px; border-radius: 2px;
@@ -84,6 +134,7 @@
     -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
     background: var(--accent); cursor: pointer; border: 2px solid #0a0f14;
   }
+
   .btn {
     width: 100%; padding: 9px 0; background: transparent; border: 1px solid var(--panel-line);
     color: var(--ink); font-family: var(--sans); font-size: 13px; border-radius: 3px; cursor: pointer;
@@ -94,19 +145,100 @@
   .btn.primary { border-color: var(--accent); color: var(--accent); }
   .btn.primary:hover:not(:disabled) { background: rgba(79,209,197,0.08); }
 
-  .view-container { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .view-container.hidden { visibility: hidden; pointer-events: none; z-index: 1; }
-  .view-container.visible { visibility: visible; pointer-events: auto; z-index: 2; }
-  #map { width: 100%; height: 100%; background: var(--bg); }
-  .map-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--ink-dim); font-family: var(--mono); font-size: 12.5px; background: var(--bg); }
-  .view-toggle { position: absolute; top: 14px; left: 18px; z-index: 500; display: flex; gap: 4px; background: rgba(16,24,32,0.9); border: 1px solid var(--panel-line); border-radius: 4px; padding: 3px; }
-  .view-toggle button { padding: 6px 14px; background: transparent; border: none; border-radius: 3px; color: var(--ink-dim); font-family: var(--sans); font-size: 12.5px; cursor: pointer; }
-  .view-toggle button.active { background: rgba(79,209,197,0.12); color: var(--accent); }
-  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--panel); color: var(--ink); border: 1px solid var(--panel-line); }
-  .leaflet-popup-content { font-family: var(--mono); font-size: 12px; margin: 10px 12px; }
-  .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) saturate(0.8); }
+  .node-info { font-size: 12.5px; color: var(--ink-dim); line-height: 1.6; }
+  .node-info b { color: var(--ink); }
 
+  .violations-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-family: var(--mono); font-size: 12px; }
+  .violations-badge.zero { background: rgba(62,207,126,0.12); color: var(--normal); }
+  .violations-badge.nonzero { background: rgba(226,73,61,0.12); color: var(--overload); }
+
+  .field-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .field-row label { font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
+  .field-row input[type=number] {
+    width: 90px; padding: 6px 8px; background: var(--bg); border: 1px solid var(--panel-line);
+    color: var(--ink); border-radius: 3px; font-family: var(--mono); font-size: 12.5px;
+  }
+  .field-row input[type=number]:focus { border-color: var(--accent); outline: none; }
+  .field-row .btn { margin-top: 0; width: auto; padding: 7px 16px; flex-shrink: 0; }
+
+  .switch-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 0;
+    border-bottom: 1px solid var(--panel-line);
+  }
+  .switch-row:last-of-type { border-bottom: none; }
+  .switch-label { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); flex: 1; }
+  .switch-state { font-family: var(--mono); font-size: 11px; width: 48px; text-align: right; }
+  .switch-state.closed { color: var(--accent); }
+  .switch-state.open { color: var(--ink-dim); }
+  .switch-toggle {
+    width: 34px; height: 18px; background: var(--panel-line); border-radius: 9px;
+    cursor: pointer; position: relative; transition: background 0.2s; flex-shrink: 0;
+  }
+  .switch-toggle.active { background: var(--accent); }
+  .switch-toggle .knob {
+    width: 14px; height: 14px; background: var(--ink); border-radius: 50%;
+    position: absolute; top: 2px; left: 2px; transition: transform 0.2s;
+  }
+  .switch-toggle.active .knob { transform: translateX(16px); background: var(--bg); }
+
+  .timeline-row { margin-top: 12px; }
+  .timeline-labels {
+    display: flex; justify-content: space-between; font-size: 10px;
+    color: var(--ink-dim); font-family: var(--mono);
+  }
+  .timeline-labels .now { color: var(--accent); }
+  .timeline-value {
+    text-align: center; font-family: var(--mono); font-size: 14px;
+    color: var(--accent); margin-top: 2px;
+  }
+
+  .btn-group { display: flex; gap: 6px; margin-top: 10px; }
+  .btn-group .btn { margin-top: 0; flex: 1; }
+
+  .view-badge {
+    display: inline-block;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 1px 8px;
+    border-radius: 10px;
+    background: rgba(79,209,197,0.12);
+    color: var(--accent);
+    margin-left: 6px;
+  }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--panel-line); border-radius: 4px; }
+
+  .toast-stack {
+    position: fixed; bottom: 20px; right: 20px; z-index: 1000;
+    display: flex; flex-direction: column; gap: 8px; max-width: 320px;
+  }
+  .toast {
+    background: var(--panel); border: 1px solid var(--panel-line); border-left: 3px solid var(--accent);
+    border-radius: 3px; padding: 10px 14px; font-size: 12.5px; font-family: var(--mono);
+    color: var(--ink); box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  }
+  .toast.error { border-left-color: var(--overload); }
+
+  .export-preview {
+    background: var(--bg); border-radius: 3px; padding: 10px;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-dim);
+    max-height: 120px; overflow: auto; margin-top: 8px; white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .view-indicator {
+    font-size: 10px;
+    color: var(--ink-dim);
+    font-family: var(--mono);
+    padding: 4px 10px;
+    background: rgba(16,24,32,0.6);
+    border-radius: 10px;
+    border: 1px solid var(--panel-line);
+  }
 </style>
+<base target="_blank">
 </head>
 <body>
 <div id="root"></div>
@@ -114,34 +246,81 @@
 const { useState, useEffect, useRef, useCallback } = React;
 const API = "http://localhost:8000";
 
-function statusColor(status) {
-  if (status === "overloaded") return "#e2493d";
-  if (status === "warning") return "#e8b339";
-  return "#3ecf7e";
+// Shared POST-JSON helper - every mutating endpoint call below sends a
+// JSON body the same way, so this replaces that repeated fetch(...,
+// { method: "POST", headers: {...}, body: JSON.stringify(...) }) boilerplate.
+function postJSON(path, body) {
+  return fetch(`${API}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
-function lineStatusColor(status) {
+// One status->color mapping, reused everywhere a bus/line needs coloring.
+// Backend already classifies each bus/line as "normal" | "warning" |
+// "overloaded" (see network.py's status_report / geo.py's build_geojson),
+// so the frontend just renders that classification - it never re-derives
+// the voltage/loading thresholds itself. Only the "normal" (and, for
+// lines, "unknown") color differs by view, since the graph and map use
+// different palettes (see the legends in each view).
+function colorForStatus(status, normalColor, unknownColor = normalColor) {
   if (status === "overloaded") return "#e2493d";
   if (status === "warning") return "#e8b339";
-  return "#2a3944";
+  if (status === "normal") return normalColor;
+  return unknownColor;
 }
+
+const statusColor = (status) => colorForStatus(status, "#3ecf7e");           // graph bus: normal = green
+const lineStatusColor = (status) => colorForStatus(status, "#2a3944");        // graph line: normal = unstyled gray
+const busGeoColor = (status) => colorForStatus(status, "#4f8fd1");            // map bus: normal = blue
+const lineGeoColor = (status) => colorForStatus(status, "#3ecf7e", "#2a3944"); // map line: normal = green, unknown = gray
+
+const TIE_SWITCHES = [
+  { id: "tie-1", from: 7, to: 20, label: "Tie 7-20" },
+  { id: "tie-2", from: 11, to: 21, label: "Tie 11-21" },
+  { id: "tie-3", from: 17, to: 32, label: "Tie 17-32" },
+  { id: "tie-4", from: 24, to: 28, label: "Tie 24-28" },
+  { id: "tie-5", from: 8, to: 14, label: "Tie 8-14" },
+];
+
+let toastId = 0;
 
 function App() {
   const cyRef = useRef(null);
   const cyInstance = useRef(null);
-  const [network, setNetwork] = useState(null);
-  const [status, setStatus] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [selectedNode, setSelectedNode] = useState(null);
-  const [sweep, setSweep] = useState(null);
-  const [view, setView] = useState("graph");
-  const [geojson, setGeojson] = useState(null);
-  const [mapReady, setMapReady] = useState(false);
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
 
-  // Fetch network topology on load
+  const [network, setNetwork] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [derKind, setDerKind] = useState("solar");
+  const [adoption, setAdoption] = useState(0);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [sweep, setSweep] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [view, setView] = useState("graph");
+  const [geojson, setGeojson] = useState(null);
+  const [mapReady, setMapReady] = useState(false);
+  const [injectionKw, setInjectionKw] = useState(50);
+  const [injectionBus, setInjectionBus] = useState(null);
+  const [injecting, setInjecting] = useState(false);
+  const [switchStates, setSwitchStates] = useState({});
+  const [heatmapVisible, setHeatmapVisible] = useState(true);
+  const [toasts, setToasts] = useState([]);
+  const [timeOfDay, setTimeOfDay] = useState(12);
+  const [timelineActive, setTimelineActive] = useState(false);
+  const [exportData, setExportData] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const sliderTimer = useRef(null);
+
+  const pushToast = useCallback((message, tone = "info") => {
+    const id = ++toastId;
+    setToasts(prev => [...prev, { id, message, tone }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500);
+  }, []);
+
   useEffect(() => {
     fetch(`${API}/network`).then(r => r.json()).then(setNetwork).catch(() => setError("Backend not reachable"));
     refreshStatus();
@@ -151,7 +330,7 @@ function App() {
     fetch(`${API}/status`).then(r => r.json()).then(setStatus).catch(() => {});
   }, []);
 
-  // Initialize Cytoscape graph
+  // Cytoscape graph
   useEffect(() => {
     if (!network || !cyRef.current) return;
     const elements = [
@@ -170,18 +349,19 @@ function App() {
           "width": 16, "height": 16, "border-width": 2, "border-color": "#0a0f14",
         }},
         { selector: "node[id='0']", style: { "background-color": "#4fd1c5", "width": 24, "height": 24 } },
-        { selector: "edge", style: { "width": 1.5, "line-color": "#2a3944", "curve-style": "bezier" } },
+        { selector: "edge", style: { "width": 1.5, "line-color": "#2a3944", "curve-style": "bezier", "target-arrow-shape": "none" } },
         { selector: "node:selected", style: { "border-color": "#4fd1c5", "border-width": 3 } },
       ],
     });
     cyInstance.current.on("tap", "node", (evt) => {
       const id = Number(evt.target.id());
       setSelectedNode(id);
+      setInjectionBus(id);
+      pushToast("Selected Bus N" + id);
     });
     return () => cyInstance.current && cyInstance.current.destroy();
   }, [network]);
 
-  // Update colors when status changes
   useEffect(() => {
     if (!cyInstance.current || !status) return;
     status.buses.forEach(b => {
@@ -198,7 +378,7 @@ function App() {
     });
   }, [status]);
 
-  // Add map initialization
+  // Leaflet map init
   useEffect(() => {
     if (!mapRef.current || mapInstance.current) return;
     try {
@@ -218,7 +398,6 @@ function App() {
     }
   }, []);
 
-  // Fetch GeoJSON when map is viewed
   const fetchGeojson = useCallback(() => {
     fetch(`${API}/api/network/geojson`).then(r => r.json()).then(setGeojson).catch(() => {});
   }, []);
@@ -228,49 +407,88 @@ function App() {
       fetchGeojson();
       setTimeout(() => mapInstance.current && mapInstance.current.invalidateSize(), 60);
     }
-  }, [view, status]);
+  }, [view, status, fetchGeojson]);
 
-  // Draw map features
+  // Draw map
   useEffect(() => {
     const map = mapInstance.current;
     if (!map || !geojson || !geojson.features) return;
 
     if (map._featureGroup) map.removeLayer(map._featureGroup);
+    if (map._heatLayer) map.removeLayer(map._heatLayer);
+    if (map._switchLayers) map._switchLayers.forEach(l => map.removeLayer(l));
+
     const featureGroup = L.featureGroup().addTo(map);
     map._featureGroup = featureGroup;
+    const switchLayers = [];
+    map._switchLayers = switchLayers;
+    const heatPoints = [];
 
-    // Draw lines
     geojson.features.filter(f => f.geometry?.type === "LineString").forEach(f => {
       const coords = f.geometry.coordinates;
       if (!coords || coords.length < 2) return;
       const latlngs = coords.map(([lon, lat]) => [lat, lon]);
       const p = f.properties || {};
       L.polyline(latlngs, {
-        color: p.loading_percent > 80 ? "#e2493d" : p.loading_percent > 60 ? "#e8b339" : "#3ecf7e",
+        color: lineGeoColor(p.status),
         weight: p.loading_percent > 80 ? 4 : 3,
         opacity: 0.9,
       }).bindPopup(
         "<b>Line N" + p.from_bus + "-N" + p.to_bus + "</b><br/>" +
-        "Loading: " + (p.loading_percent != null ? p.loading_percent.toFixed(1) : "—") + "%"
+        "Loading: " + (p.loading_percent != null ? p.loading_percent.toFixed(1) : "—") + "%<br/>" +
+        "R: " + (p.r_ohm ?? "—") + " Ω · X: " + (p.x_ohm ?? "—") + " Ω"
       ).addTo(featureGroup);
     });
 
-    // Draw points
     geojson.features.filter(f => f.geometry?.type === "Point").forEach(f => {
       const coords = f.geometry.coordinates;
       if (!coords || coords.length < 2) return;
       const [lon, lat] = coords;
       const p = f.properties || {};
       const vm = p.voltage_pu;
+      heatPoints.push([lat, lon, vm != null ? Math.max(0, Math.min(1, 1 - (vm - 0.9) / 0.15)) : 0.5]);
       L.circleMarker([lat, lon], {
         radius: p.is_substation ? 10 : 7,
         color: "#0a0f14", weight: 2,
-        fillColor: vm < 0.95 ? "#e2493d" : vm < 0.98 ? "#e8b339" : "#4f8fd1",
-        fillOpacity: 1,
+        fillColor: busGeoColor(p.violation_status), fillOpacity: 1,
       }).bindPopup(
         "<b>Bus N" + p.bus_id + (p.is_substation ? " (substation)" : "") + "</b><br/>" +
-        "Voltage: " + (vm != null ? vm.toFixed(4) : "—") + " pu"
-      ).addTo(featureGroup);
+        "Voltage: " + (vm != null ? vm.toFixed(4) : "—") + " pu<br/>" +
+        "Status: " + (p.violation_status || "unknown")
+      ).on("click", () => { setSelectedNode(p.bus_id); setInjectionBus(p.bus_id); })
+        .addTo(featureGroup);
+    });
+
+    if (heatmapVisible && heatPoints.length > 0 && window.L.heatLayer) {
+      const heat = L.heatLayer(heatPoints, {
+        radius: 35, blur: 20, maxZoom: 17,
+        gradient: { 0.0: "#3ecf7e", 0.5: "#e8b339", 1.0: "#e2493d" },
+      }).addTo(map);
+      map._heatLayer = heat;
+    }
+
+    TIE_SWITCHES.forEach(sw => {
+      const fromF = geojson.features.find(f => f.properties?.bus_id === sw.from);
+      const toF = geojson.features.find(f => f.properties?.bus_id === sw.to);
+      if (!fromF || !toF) return;
+      const [fLon, fLat] = fromF.geometry.coordinates;
+      const [tLon, tLat] = toF.geometry.coordinates;
+      const isClosed = !!switchStates[sw.id];
+      const color = isClosed ? "#4fd1c5" : "#5a6d78";
+
+      const line = L.polyline([[fLat, fLon], [tLat, tLon]], {
+        color, weight: 2, opacity: isClosed ? 0.85 : 0.5, dashArray: "6, 6",
+      }).bindPopup("<b>" + sw.label + "</b><br/>Status: " + (isClosed ? "Closed" : "Open") + " (visual only)");
+      line.on("click", () => toggleSwitch(sw));
+      line.addTo(map);
+      switchLayers.push(line);
+
+      const marker = L.circleMarker([(fLat + tLat) / 2, (fLon + tLon) / 2], {
+        radius: isClosed ? 6 : 4, color, weight: 2, fillColor: color, fillOpacity: 0.85,
+      }).bindPopup("<b>" + sw.label + "</b><br/>Status: " + (isClosed ? "Closed" : "Open") + " (visual only)");
+      marker.on("click", () => toggleSwitch(sw));
+      marker.addTo(map);
+      switchLayers.push(marker);
     });
 
     if (!map._didFitBounds) {
@@ -280,22 +498,139 @@ function App() {
         map._didFitBounds = true;
       }
     }
-  }, [geojson]);
+  }, [geojson, heatmapVisible, switchStates]);
 
-  const violationCount = status ? status.violations : 0;
-  const minV = status ? Math.min(...status.buses.map(b => b.vm_pu)).toFixed(3) : "—";
-  const maxLoading = status ? Math.max(...status.lines.map(l => l.loading_percent)).toFixed(1) : "—";
-  const selectedBusInfo = status && selectedNode !== null ? status.buses.find(b => b.node_id === selectedNode) : null;
-  const [derKind, setDerKind] = useState("solar");
-  const [adoption, setAdoption] = useState(0);
-  const sliderTimer = useRef(null);
+  const toggleSwitch = (sw) => {
+    setSwitchStates(prev => {
+      const next = { ...prev, [sw.id]: !prev[sw.id] };
+      pushToast(sw.label + " set to " + (next[sw.id] ? "closed" : "open") + " (visual only)");
+      return next;
+    });
+  };
+
+  // 24hr timeline
+  const runTimeline = useCallback(async (hour) => {
+    setLoading(true);
+    try {
+      const solarFactor = Math.max(0, Math.sin((hour - 6) / 12 * Math.PI));
+      const morningPeak = Math.exp(-Math.pow((hour - 8) / 3, 2));
+      const eveningPeak = Math.exp(-Math.pow((hour - 20) / 2.5, 2));
+      const evFactor = Math.max(morningPeak, eveningPeak) * 0.7;
+      const factor = derKind === "solar" ? solarFactor : evFactor;
+      const effectivePct = Math.round(adoption * factor);
+
+      const res = await postJSON("/adoption-slider", { adoption_pct: Math.min(100, effectivePct), kind: derKind });
+      if (!res.ok) throw new Error("Timeline simulation failed");
+      const data = await res.json();
+      setStatus(data);
+      setExportData(prev => ({
+        ...prev,
+        timeline: {
+          hour,
+          factor,
+          effectivePct: Math.min(100, effectivePct),
+          violations: data.violations,
+          minVoltage: Math.min(...data.buses.map(b => b.vm_pu)),
+          maxLoading: Math.max(...data.lines.map(l => l.loading_percent)),
+        }
+      }));
+      if (view === "map") setTimeout(fetchGeojson, 250);
+      pushToast(hour + ":00 — " + derKind + " at " + Math.round(effectivePct) + "% effective");
+    } catch (err) {
+      pushToast(err.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [derKind, adoption, view, fetchGeojson, pushToast]);
+
+  const handleTimelineChange = (hour) => {
+    setTimeOfDay(hour);
+    if (timelineActive) runTimeline(hour);
+  };
+
+  const toggleTimeline = () => {
+    setTimelineActive(!timelineActive);
+    if (!timelineActive) {
+      runTimeline(timeOfDay);
+    } else {
+      runSlider(adoption, derKind);
+    }
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const statusRes = await fetch(`${API}/status`);
+      const statusData = await statusRes.json();
+      const exportObj = {
+        timestamp: new Date().toISOString(),
+        feeder: "IEEE 33-bus",
+        view: view,
+        adoption: { kind: derKind, percentage: adoption },
+        timeOfDay: timelineActive ? timeOfDay : null,
+        status: {
+          violations: statusData.violations,
+          converged: statusData.converged,
+          buses: statusData.buses,
+          lines: statusData.lines,
+        },
+        timelineData: exportData?.timeline || null,
+      };
+
+      const jsonBlob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
+      const jsonUrl = URL.createObjectURL(jsonBlob);
+      const a = document.createElement('a');
+      a.href = jsonUrl;
+      a.download = "gridtwin-export-" + new Date().toISOString().slice(0,10) + ".json";
+      a.click();
+      URL.revokeObjectURL(jsonUrl);
+
+      if (statusData.buses && statusData.buses.length > 0) {
+        const csvRows = ['bus_id,vm_pu,va_degree,status'];
+        statusData.buses.forEach(b => {
+          csvRows.push(b.node_id + "," + b.vm_pu + "," + b.va_degree + "," + b.status);
+        });
+        const csvContent = csvRows.join('\n');
+        const csvBlob = new Blob([csvContent], { type: 'text/csv' });
+        const csvUrl = URL.createObjectURL(csvBlob);
+        const csvA = document.createElement('a');
+        csvA.href = csvUrl;
+        csvA.download = "gridtwin-voltages-" + new Date().toISOString().slice(0,10) + ".csv";
+        csvA.click();
+        URL.revokeObjectURL(csvUrl);
+      }
+      pushToast("Exported " + (statusData.buses?.length || 0) + " bus records");
+    } catch (err) {
+      pushToast("Export failed: " + err.message, "error");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleInject = async () => {
+    if (injectionBus === null || injectionBus === undefined) {
+      pushToast("Select a bus first (click a node on the Graph or Map tab).", "error");
+      return;
+    }
+    setInjecting(true);
+    try {
+      const res = await postJSON("/api/grid/simulate", { node_id: injectionBus, solar_kw: injectionKw });
+      if (!res.ok) throw new Error("Simulation failed");
+      const data = await res.json();
+      refreshStatus();
+      if (view === "map") setTimeout(fetchGeojson, 250);
+      pushToast("Injected " + injectionKw + " kW at Bus N" + injectionBus + " — " + (data.violations || 0) + " violation(s)");
+    } catch (err) {
+      pushToast(err.message, "error");
+    } finally {
+      setInjecting(false);
+    }
+  };
 
   const runSlider = (pct, kind) => {
     setLoading(true); setError(null);
-    fetch(`${API}/adoption-slider`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ adoption_pct: pct, kind }),
-    }).then(r => { if (!r.ok) throw new Error("simulation failed"); return r.json(); })
+    postJSON("/adoption-slider", { adoption_pct: pct, kind })
+      .then(r => { if (!r.ok) throw new Error("simulation failed"); return r.json(); })
       .then(setStatus).catch(e => setError(e.message)).finally(() => setLoading(false));
   };
 
@@ -304,7 +639,6 @@ function App() {
     if (sliderTimer.current) clearTimeout(sliderTimer.current);
     sliderTimer.current = setTimeout(() => runSlider(v, derKind), 180);
   };
-
   const onKindChange = (k) => {
     setDerKind(k);
     if (sliderTimer.current) { clearTimeout(sliderTimer.current); sliderTimer.current = null; }
@@ -313,37 +647,76 @@ function App() {
 
   const runSweep = () => {
     setLoading(true);
-    fetch(`${API}/hosting-capacity?kind=${derKind}&step_pct=5`)
-      .then(r => r.json())
-      .then(setSweep)
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    fetch(`${API}/hosting-capacity?kind=${derKind}&step_pct=5`).then(r => r.json())
+      .then(setSweep).catch(() => {}).finally(() => setLoading(false));
   };
 
   const resetAll = () => {
     setAdoption(0);
+    setSwitchStates({});
+    setTimelineActive(false);
+    setTimeOfDay(12);
     fetch(`${API}/reset`, { method: "POST" }).then(r => r.json()).then(setStatus);
+    if (view === "map") setTimeout(fetchGeojson, 250);
+    pushToast("Reset to baseline");
   };
+
+  const violationCount = status ? status.violations : 0;
+  const minV = status ? Math.min(...status.buses.map(b => b.vm_pu)).toFixed(3) : "—";
+  const maxLoading = status ? Math.max(...status.lines.map(l => l.loading_percent)).toFixed(1) : "—";
+  const selectedBusInfo = status && selectedNode !== null ? status.buses.find(b => b.node_id === selectedNode) : null;
 
   return (
     <div className="app">
       <div className="header">
         <h1>GridTwin <span className="feeder">/ IEEE 33-bus feeder</span></h1>
-        <div className="sub">{error || "power flow · graph view"}</div>
+        <div className={`sub ${error ? "error" : ""}`}>
+          {error || "power flow · " + (view === "graph" ? "graph view" : "map view")}
+        </div>
       </div>
       <div className="main">
         <div className="graph-wrap">
-          <div id="cy" ref={cyRef}></div>
-          <div className="legend">
-            <div className="item"><span className="dot" style={{background:"var(--normal)"}}></span>normal</div>
-            <div className="item"><span className="dot" style={{background:"var(--warning)"}}></span>warning</div>
-            <div className="item"><span className="dot" style={{background:"var(--overload)"}}></span>overloaded</div>
+          <div className="view-toggle">
+            <button className={view === "graph" ? "active" : ""} onClick={() => setView("graph")}>Graph</button>
+            <button className={view === "map" ? "active" : ""} onClick={() => setView("map")}>Map</button>
           </div>
+
+          <div className={`view-container ${view === "graph" ? "visible" : "hidden"}`}>
+            <div id="cy" ref={cyRef}></div>
+          </div>
+
+          <div className={`view-container ${view === "map" ? "visible" : "hidden"}`}>
+            <div id="map" ref={mapRef}></div>
+            {!mapReady && <div className="map-loading">Initializing map…</div>}
+          </div>
+
+          {view === "graph" ? (
+            <div className="legend">
+              <div className="item"><span className="dot" style={{background:"var(--normal)"}}></span>normal</div>
+              <div className="item"><span className="dot" style={{background:"var(--warning)"}}></span>warning</div>
+              <div className="item"><span className="dot" style={{background:"var(--overload)"}}></span>overloaded</div>
+              <div className="item" style={{color:"var(--ink-dim)", fontSize:"10px", opacity:0.6}}>click node → select</div>
+            </div>
+          ) : (
+            <div className="legend">
+              <div className="item"><span className="line" style={{background:"#3ecf7e"}}></span>line &lt;80%</div>
+              <div className="item"><span className="line" style={{background:"#e8b339"}}></span>80–100%</div>
+              <div className="item"><span className="line" style={{background:"#e2493d"}}></span>&gt;100%</div>
+              <div className="item"><span className="dot" style={{background:"#4f8fd1"}}></span>bus normal</div>
+              <div className="item"><span className="dot" style={{background:"#e8b339"}}></span>bus warning</div>
+              <div className="item"><span className="dot" style={{background:"#e2493d"}}></span>bus violation</div>
+              <div className="item"><span className="line dashed"></span>tie switch</div>
+            </div>
+          )}
         </div>
 
         <div className="panel">
+          {/* Always visible: Status */}
           <div className="card">
-            <h2>Feeder status</h2>
+            <h2>
+              Feeder status
+              <span className="view-badge">{view}</span>
+            </h2>
             <div className="stat-row">
               <span className="stat-label">Violations</span>
               <span className={`violations-badge ${violationCount > 0 ? "nonzero" : "zero"}`}>{violationCount}</span>
@@ -357,44 +730,146 @@ function App() {
               <span className="stat-value">{maxLoading}%</span>
             </div>
           </div>
-          <button className="btn primary" onClick={runSweep} disabled={loading}>Find hosting capacity</button>
-          {sweep && (
-            <div style={{marginTop:12, fontSize:12.5, color:"var(--ink-dim)"}}>
-              First violation at{" "}
-              <b style={{color:"var(--accent)", fontFamily:"var(--mono)"}}>{sweep.hosting_capacity_pct}%</b> adoption
+
+          {/* Always visible: DER Adoption */}
+          <div className="card">
+            <h2>DER adoption</h2>
+            <div className="toggle-group">
+              <button className={`toggle-btn ${derKind === "solar" ? "active" : ""}`} onClick={() => onKindChange("solar")}>Rooftop solar</button>
+              <button className={`toggle-btn ${derKind === "ev" ? "active" : ""}`} onClick={() => onKindChange("ev")}>EV charging</button>
             </div>
-          )}
-
-          // Add view toggle buttons in the graph-wrap div:
-          <div className="view-toggle">
-            <button className={view === "graph" ? "active" : ""} onClick={() => setView("graph")}>Graph</button>
-            <button className={view === "map" ? "active" : ""} onClick={() => setView("map")}>Map</button>
+            <div className="slider-row">
+              <span className="val">{adoption}%</span>
+              <input type="range" min="0" max="100" step="5" value={adoption}
+                onChange={e => onSliderChange(Number(e.target.value))} />
+            </div>
+            <button className="btn" onClick={resetAll} disabled={loading}>Reset to baseline</button>
+            <button className="btn primary" onClick={runSweep} disabled={loading}>Find hosting capacity</button>
+            {sweep && (
+              <div style={{marginTop:12, fontSize:12.5, color:"var(--ink-dim)"}}>
+                First violation at{" "}
+                <b style={{color:"var(--accent)", fontFamily:"var(--mono)"}}>{sweep.hosting_capacity_pct}%</b> adoption
+              </div>
+            )}
           </div>
 
-          // Add map container alongside cy:
-          <div className={`view-container ${view === "map" ? "visible" : "hidden"}`}>
-            <div id="map" ref={mapRef}></div>
-            {!mapReady && <div className="map-loading">Initializing map…</div>}
+          {/* Always visible: 24hr Timeline */}
+          <div className="card">
+            <h2>24hr profile</h2>
+            <div className="switch-row">
+              <span className="switch-label">Timeline simulation</span>
+              <span className={`switch-state ${timelineActive ? "closed" : "open"}`}>
+                {timelineActive ? "on" : "off"}
+              </span>
+              <div className={`switch-toggle ${timelineActive ? "active" : ""}`} onClick={toggleTimeline}>
+                <div className="knob"></div>
+              </div>
+            </div>
+            <div className="timeline-row">
+              <div className="timeline-labels">
+                <span>00:00</span>
+                <span className="now">{String(timeOfDay).padStart(2, '0')}:00</span>
+                <span>24:00</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="24"
+                step="1"
+                value={timeOfDay}
+                onChange={e => handleTimelineChange(Number(e.target.value))}
+                disabled={!timelineActive}
+              />
+              <div className="timeline-value">
+                {timelineActive ? (derKind === 'solar' ? 'Solar peak at noon' : 'EV peak at evening') : 'Paused'}
+              </div>
+            </div>
+            <div className="caption">Simulates solar generation peaking at midday versus EV load peaking in evening.</div>
           </div>
 
-          // Update graph container:
-          <div className={`view-container ${view === "graph" ? "visible" : "hidden"}`}>
-            <div id="cy" ref={cyRef}></div>
+          {/* Always visible: Bus Injection */}
+          <div className="card">
+            <h2>Bus injection</h2>
+            <div className="node-info">
+              Selected: <b>{injectionBus !== null ? "Bus N" + injectionBus : "none — click a node"}</b>
+            </div>
+            <div className="field-row">
+              <label htmlFor="inject-kw">Solar kW</label>
+              <input id="inject-kw" type="number" min="1" max="500" value={injectionKw}
+                onChange={e => setInjectionKw(Number(e.target.value))} />
+              <button className="btn primary" onClick={handleInject} disabled={injecting}>
+                {injecting ? "Injecting…" : "Inject"}
+              </button>
+            </div>
+            <div className="caption">Adds a one-off solar injection at the selected bus and re-runs the power flow.</div>
+          </div>
+
+          {/* Map-only: Map Layers & Tie Switches */}
+          <div className={`card ${view !== "map" ? "hidden" : ""}`}>
+            <h2>Map layers</h2>
+            <div className="switch-row">
+              <span className="switch-label">Voltage heatmap</span>
+              <span className={`switch-state ${heatmapVisible ? "closed" : "open"}`}>{heatmapVisible ? "on" : "off"}</span>
+              <div className={`switch-toggle ${heatmapVisible ? "active" : ""}`} onClick={() => setHeatmapVisible(v => !v)}>
+                <div className="knob"></div>
+              </div>
+            </div>
+            <div className="caption" style={{marginTop:8}}>Heatmap shows voltage gradient across the feeder — red indicates low voltage.</div>
+          </div>
+
+          <div className={`card ${view !== "map" ? "hidden" : ""}`}>
+            <h2>Tie switches <span className="view-badge">map only</span></h2>
+            {TIE_SWITCHES.map(sw => (
+              <div className="switch-row" key={sw.id}>
+                <span className="switch-label">{sw.label}</span>
+                <span className={`switch-state ${switchStates[sw.id] ? "closed" : "open"}`}>
+                  {switchStates[sw.id] ? "closed" : "open"}
+                </span>
+                <div className={`switch-toggle ${switchStates[sw.id] ? "active" : ""}`} onClick={() => toggleSwitch(sw)}>
+                  <div className="knob"></div>
+                </div>
+              </div>
+            ))}
+            <div className="caption">Visual only — the backend does not model tie-switch reconfiguration.</div>
+          </div>
+
+          {/* Always visible: Export & Selected Node */}
+          <div className="card">
+            <h2>Export and report</h2>
+            <div className="btn-group">
+              <button className="btn primary" onClick={handleExport} disabled={exporting}>
+                {exporting ? "Exporting…" : "Export JSON + CSV"}
+              </button>
+            </div>
+            {exportData?.timeline && (
+              <div className="export-preview">
+                Last timeline: {exportData.timeline.hour}:00 —
+                {exportData.timeline.violations} violations,
+                {exportData.timeline.minVoltage.toFixed(3)} pu min
+              </div>
+            )}
+            <div className="caption">Exports bus voltages, violations, and timeline data for offline analysis.</div>
           </div>
 
           <div className="card">
             <h2>Selected node</h2>
             {selectedBusInfo ? (
-              <div style={{fontSize:"12.5px", color:"var(--ink-dim)"}}>
-                <div>Bus <b style={{color:"var(--ink)"}}>N{selectedBusInfo.node_id}</b></div>
+              <div className="node-info">
+                <div>Bus <b>N{selectedBusInfo.node_id}</b></div>
                 <div>Voltage: <b style={{color: statusColor(selectedBusInfo.status)}}>{selectedBusInfo.vm_pu} pu</b></div>
                 <div>Status: <b style={{color: statusColor(selectedBusInfo.status)}}>{selectedBusInfo.status}</b></div>
               </div>
             ) : (
-              <div style={{fontSize:"12.5px", color:"var(--ink-dim)"}}>Click a node to inspect it.</div>
+              <div className="node-info">Click a node in the graph or map to inspect it.</div>
             )}
           </div>
         </div>
+      </div>
+
+      <div className="toast-stack">
+        {toasts.map(t => (
+          <div key={t.id} className={`toast ${t.tone === "error" ? "error" : ""}`}>{t.message}</div>
+        ))}
       </div>
     </div>
   );

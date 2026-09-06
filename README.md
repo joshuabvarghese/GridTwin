@@ -44,6 +44,14 @@ uvicorn main:app --reload --port 8000
 pytest -v
 
 
+
+**Frontend** 
+```bash
+cd frontend
+python3 -m http.server 8080
+# visit http://localhost:8080
+```
+
 ## API
 
 | Endpoint | Method | Purpose |
