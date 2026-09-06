@@ -3,6 +3,7 @@ GridTwin API
 """
 import os
 import threading
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -10,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import geo
 from network import Feeder
 
 app = FastAPI(title="GridTwin API", version="0.1.0")
@@ -34,6 +36,36 @@ feeder = Feeder()
 # FastAPI executes *sync* endpoints in a threadpool, so two requests can touch the shared `feeder` object concurrently (e.g. a slider drag firing rapid /adoption-slider POSTs). pandapower solves mutate net.res_* in place, so any endpoint that mutates DER state or runs a solve must hold this lock.
 # single-feeder app; to scale out, give each request its own Feeder (or a deepcopy of the net) instead of sharing one instance.
 _feeder_lock = threading.Lock()
+
+
+@app.on_event("startup")
+def _warm_caches():
+    """Pre-pay two one-time costs at boot instead of on a live user's
+    first request:
+
+    1. pandapower's first power-flow solve triggers numba JIT-compiling
+       its solver kernels, which is slow; every solve after that is fast.
+    2. Every line's street-routed geometry needs one OSRM HTTP round trip
+       the first time that pair of coordinates is looked up (cached
+       forever after - see geo.get_osrm_route) - moving that to startup
+       means it lands in Render's normal boot window instead of blocking
+       whichever user opens the Map tab first.
+
+    Best-effort for both: any solve/OSRM hiccup here is harmless, since
+    the same fallback (real solve retried, or straight-line route) would
+    kick in on the first real request anyway.
+    """
+    start = time.monotonic()
+    try:
+        feeder.run_powerflow()
+    except Exception:
+        pass
+    coords = feeder._geo_coords
+    for u, v in feeder.graph.edges():
+        lat_u, lon_u = coords.get(u, (geo.DEFAULT_BASE_LAT, geo.DEFAULT_BASE_LON))
+        lat_v, lon_v = coords.get(v, (geo.DEFAULT_BASE_LAT, geo.DEFAULT_BASE_LON))
+        geo.get_osrm_route(lat_u, lon_u, lat_v, lon_v)
+    print(f"[gridtwin] warmed power-flow solver + {len(feeder.graph.edges())} OSRM routes in {time.monotonic() - start:.1f}s")
 
 
 def _safe(fn):
