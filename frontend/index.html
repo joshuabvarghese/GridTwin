@@ -244,19 +244,23 @@
 <div id="root"></div>
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef, useCallback } = React;
-const API = "http://localhost:8000";
+const API = " https://gridtwin-ukf8.onrender.com";
 
-// Shared POST-JSON helper - every mutating endpoint call below sends a
-// JSON body the same way, so this replaces that repeated fetch(...,
-// { method: "POST", headers: {...}, body: JSON.stringify(...) }) boilerplate.
-function postJSON(path, body) {
-  return fetch(`${API}${path}`, {
+const fetchJSON = async (path) => {
+  const res = await fetch(`${API}${path}`);
+  if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
+  return res.json();
+};
+
+const postJSON = async (path, body) => {
+  const res = await fetch(`${API}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-}
-
+  if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
+  return res.json();
+};
 // One status->color mapping, reused everywhere a bus/line needs coloring.
 // Backend already classifies each bus/line as "normal" | "warning" |
 // "overloaded" (see network.py's status_report / geo.py's build_geojson),
