@@ -7,4 +7,3 @@ pydantic
 pytest
 httpx
 numba
-numpy
