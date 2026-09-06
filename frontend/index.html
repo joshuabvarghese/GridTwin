@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GridTwin — DER Hosting Capacity</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+<style>
+  :root{
+    --bg: #0a0f14;
+    --panel: #101820;
+    --panel-line: #1c2830;
+    --ink: #dce7ea;
+    --ink-dim: #7d94a0;
+    --accent: #4fd1c5;
+    --normal: #3ecf7e;
+    --warning: #e8b339;
+    --overload: #e2493d;
+    --bus-normal: #4f8fd1;
+    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  .header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 20px 28px; border-bottom: 1px solid var(--panel-line);
+    background: rgba(10,15,20,0.85); backdrop-filter: blur(6px);
+  }
+  .header h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  .header h1 .feeder { color: var(--ink-dim); font-weight: 400; }
+  .header .sub { color: var(--ink-dim); font-size: 12.5px; font-family: var(--mono); }
+  .main { flex: 1; display: grid; grid-template-columns: 1fr 340px; overflow: hidden; }
+  .graph-wrap { position: relative; border-right: 1px solid var(--panel-line); }
+  #cy { width: 100%; height: 100%; }
+  .panel { padding: 22px; overflow-y: auto; display: flex; flex-direction: column; gap: 22px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--panel-line);
+    border-radius: 4px; padding: 16px;
+  }
+  .card h2 {
+    margin: 0 0 12px; font-size: 11px; letter-spacing: 0.06em;
+    color: var(--ink-dim); text-transform: uppercase;
+  }
+  .stat-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .stat-label { color: var(--ink-dim); font-size: 13px; }
+  .stat-value { font-family: var(--mono); font-size: 15px; }
+  .violations-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-family: var(--mono); font-size: 12px; }
+  .violations-badge.zero { background: rgba(62,207,126,0.12); color: var(--normal); }
+  .violations-badge.nonzero { background: rgba(226,73,61,0.12); color: var(--overload); }
+  .legend {
+    position: absolute; bottom: 18px; left: 18px; z-index: 10;
+    background: rgba(16,24,32,0.9); border: 1px solid var(--panel-line);
+    border-radius: 3px; padding: 10px 14px; font-size: 12px; font-family: var(--mono);
+    display: flex; gap: 16px; flex-wrap: wrap;
+  }
+  .legend .item { display: flex; align-items: center; gap: 6px; color: var(--ink-dim); }
+  .legend .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .legend .line { width: 14px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+const API = "http://localhost:8000";
+
+function statusColor(status) {
+  if (status === "overloaded") return "#e2493d";
+  if (status === "warning") return "#e8b339";
+  return "#3ecf7e";
+}
+
+function lineStatusColor(status) {
+  if (status === "overloaded") return "#e2493d";
+  if (status === "warning") return "#e8b339";
+  return "#2a3944";
+}
+
+function App() {
+  const cyRef = useRef(null);
+  const cyInstance = useRef(null);
+  const [network, setNetwork] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [selectedNode, setSelectedNode] = useState(null);
+
+  // Fetch network topology on load
+  useEffect(() => {
+    fetch(`${API}/network`).then(r => r.json()).then(setNetwork).catch(() => setError("Backend not reachable"));
+    refreshStatus();
+  }, []);
+
+  const refreshStatus = useCallback(() => {
+    fetch(`${API}/status`).then(r => r.json()).then(setStatus).catch(() => {});
+  }, []);
+
+  // Initialize Cytoscape graph
+  useEffect(() => {
+    if (!network || !cyRef.current) return;
+    const elements = [
+      ...network.nodes.map(n => ({ data: { id: String(n.id), label: n.id === 0 ? "SUB" : `N${n.id}` } })),
+      ...network.edges.map(e => ({ data: { id: `e${e.source}-${e.target}`, source: String(e.source), target: String(e.target) } })),
+    ];
+    cyInstance.current = cytoscape({
+      container: cyRef.current,
+      elements,
+      layout: { name: "breadthfirst", roots: "#0", spacingFactor: 1.15, directed: true },
+      style: [
+        { selector: "node", style: {
+          "background-color": "#3ecf7e", "label": "data(label)", "color": "#7d94a0",
+          "font-size": 9, "font-family": "IBM Plex Mono, monospace",
+          "text-valign": "bottom", "text-margin-y": 4,
+          "width": 16, "height": 16, "border-width": 2, "border-color": "#0a0f14",
+        }},
+        { selector: "node[id='0']", style: { "background-color": "#4fd1c5", "width": 24, "height": 24 } },
+        { selector: "edge", style: { "width": 1.5, "line-color": "#2a3944", "curve-style": "bezier" } },
+        { selector: "node:selected", style: { "border-color": "#4fd1c5", "border-width": 3 } },
+      ],
+    });
+    cyInstance.current.on("tap", "node", (evt) => {
+      const id = Number(evt.target.id());
+      setSelectedNode(id);
+    });
+    return () => cyInstance.current && cyInstance.current.destroy();
+  }, [network]);
+
+  // Update colors when status changes
+  useEffect(() => {
+    if (!cyInstance.current || !status) return;
+    status.buses.forEach(b => {
+      const n = cyInstance.current.getElementById(String(b.node_id));
+      if (n && b.node_id !== 0) n.style("background-color", statusColor(b.status));
+    });
+    status.lines.forEach(l => {
+      let e = cyInstance.current.getElementById(`e${l.from_bus}-${l.to_bus}`);
+      if (!e || !e.length) e = cyInstance.current.getElementById(`e${l.to_bus}-${l.from_bus}`);
+      if (e && e.length) {
+        e.style("line-color", lineStatusColor(l.status));
+        e.style("width", l.status === "normal" ? 1.5 : 2.5);
+      }
+    });
+  }, [status]);
+
+  const violationCount = status ? status.violations : 0;
+  const minV = status ? Math.min(...status.buses.map(b => b.vm_pu)).toFixed(3) : "—";
+  const maxLoading = status ? Math.max(...status.lines.map(l => l.loading_percent)).toFixed(1) : "—";
+  const selectedBusInfo = status && selectedNode !== null ? status.buses.find(b => b.node_id === selectedNode) : null;
+
+  return (
+    <div className="app">
+      <div className="header">
+        <h1>GridTwin <span className="feeder">/ IEEE 33-bus feeder</span></h1>
+        <div className="sub">{error || "power flow · graph view"}</div>
+      </div>
+      <div className="main">
+        <div className="graph-wrap">
+          <div id="cy" ref={cyRef}></div>
+          <div className="legend">
+            <div className="item"><span className="dot" style={{background:"var(--normal)"}}></span>normal</div>
+            <div className="item"><span className="dot" style={{background:"var(--warning)"}}></span>warning</div>
+            <div className="item"><span className="dot" style={{background:"var(--overload)"}}></span>overloaded</div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="card">
+            <h2>Feeder status</h2>
+            <div className="stat-row">
+              <span className="stat-label">Violations</span>
+              <span className={`violations-badge ${violationCount > 0 ? "nonzero" : "zero"}`}>{violationCount}</span>
+            </div>
+            <div className="stat-row">
+              <span className="stat-label">Min bus voltage</span>
+              <span className="stat-value">{minV} pu</span>
+            </div>
+            <div className="stat-row">
+              <span className="stat-label">Max line loading</span>
+              <span className="stat-value">{maxLoading}%</span>
+            </div>
+          </div>
+
+          <div className="card">
+            <h2>Selected node</h2>
+            {selectedBusInfo ? (
+              <div style={{fontSize:"12.5px", color:"var(--ink-dim)"}}>
+                <div>Bus <b style={{color:"var(--ink)"}}>N{selectedBusInfo.node_id}</b></div>
+                <div>Voltage: <b style={{color: statusColor(selectedBusInfo.status)}}>{selectedBusInfo.vm_pu} pu</b></div>
+                <div>Status: <b style={{color: statusColor(selectedBusInfo.status)}}>{selectedBusInfo.status}</b></div>
+              </div>
+            ) : (
+              <div style={{fontSize:"12.5px", color:"var(--ink-dim)"}}>Click a node to inspect it.</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
