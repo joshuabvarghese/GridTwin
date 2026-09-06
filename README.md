@@ -3,6 +3,9 @@
 A CIM-flavoured distribution network simulator: load an IEEE 33-bus feeder,
 add rooftop solar / EV chargers to nodes, run AC power flow, and see the
 network turn from green to red as adoption climbs.
+<p align="center">
+  <img src="assets/demo.gif" alt="GridTwin Dashboard" width="100%" />
+</p>
 
 Live demo:- https://gridtwin-qql0.onrender.com
 
