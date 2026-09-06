@@ -6,3 +6,4 @@ networkx
 pydantic
 pytest
 httpx
+numba
