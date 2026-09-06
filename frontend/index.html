@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+<script src="config.js"></script>
 <style>
   :root{
     --bg: #0a0f14;
@@ -244,7 +245,7 @@
 <div id="root"></div>
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef, useCallback } = React;
-const API = "http://localhost:8000";
+const API = window.GRIDTWIN_API_BASE || "";
 
 // Shared POST-JSON helper - every mutating endpoint call below sends a
 // JSON body the same way, so this replaces that repeated fetch(...,

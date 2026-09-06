@@ -1,0 +1,1 @@
+window.GRIDTWIN_API_BASE = window.GRIDTWIN_API_BASE || "";

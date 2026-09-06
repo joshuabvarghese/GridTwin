@@ -1,0 +1,7 @@
+services:
+  gridtwin:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      GRIDTWIN_CORS_ORIGINS: ""
