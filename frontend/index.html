@@ -8,6 +8,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
 <style>
   :root{
     --bg: #0a0f14;
@@ -91,6 +94,18 @@
   .btn.primary { border-color: var(--accent); color: var(--accent); }
   .btn.primary:hover:not(:disabled) { background: rgba(79,209,197,0.08); }
 
+  .view-container { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .view-container.hidden { visibility: hidden; pointer-events: none; z-index: 1; }
+  .view-container.visible { visibility: visible; pointer-events: auto; z-index: 2; }
+  #map { width: 100%; height: 100%; background: var(--bg); }
+  .map-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--ink-dim); font-family: var(--mono); font-size: 12.5px; background: var(--bg); }
+  .view-toggle { position: absolute; top: 14px; left: 18px; z-index: 500; display: flex; gap: 4px; background: rgba(16,24,32,0.9); border: 1px solid var(--panel-line); border-radius: 4px; padding: 3px; }
+  .view-toggle button { padding: 6px 14px; background: transparent; border: none; border-radius: 3px; color: var(--ink-dim); font-family: var(--sans); font-size: 12.5px; cursor: pointer; }
+  .view-toggle button.active { background: rgba(79,209,197,0.12); color: var(--accent); }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--panel); color: var(--ink); border: 1px solid var(--panel-line); }
+  .leaflet-popup-content { font-family: var(--mono); font-size: 12px; margin: 10px 12px; }
+  .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) saturate(0.8); }
+
 </style>
 </head>
 <body>
@@ -119,6 +134,12 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
+  const [sweep, setSweep] = useState(null);
+  const [view, setView] = useState("graph");
+  const [geojson, setGeojson] = useState(null);
+  const [mapReady, setMapReady] = useState(false);
+  const mapRef = useRef(null);
+  const mapInstance = useRef(null);
 
   // Fetch network topology on load
   useEffect(() => {
@@ -177,6 +198,90 @@ function App() {
     });
   }, [status]);
 
+  // Add map initialization
+  useEffect(() => {
+    if (!mapRef.current || mapInstance.current) return;
+    try {
+      const map = L.map(mapRef.current, {
+        attributionControl: true,
+        center: [-35.2809, 149.1300],
+        zoom: 14,
+      });
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors",
+        subdomains: "abc", maxZoom: 19,
+      }).addTo(map);
+      mapInstance.current = map;
+      setMapReady(true);
+    } catch (err) {
+      setError("Map failed to initialize: " + err.message);
+    }
+  }, []);
+
+  // Fetch GeoJSON when map is viewed
+  const fetchGeojson = useCallback(() => {
+    fetch(`${API}/api/network/geojson`).then(r => r.json()).then(setGeojson).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (view === "map") {
+      fetchGeojson();
+      setTimeout(() => mapInstance.current && mapInstance.current.invalidateSize(), 60);
+    }
+  }, [view, status]);
+
+  // Draw map features
+  useEffect(() => {
+    const map = mapInstance.current;
+    if (!map || !geojson || !geojson.features) return;
+
+    if (map._featureGroup) map.removeLayer(map._featureGroup);
+    const featureGroup = L.featureGroup().addTo(map);
+    map._featureGroup = featureGroup;
+
+    // Draw lines
+    geojson.features.filter(f => f.geometry?.type === "LineString").forEach(f => {
+      const coords = f.geometry.coordinates;
+      if (!coords || coords.length < 2) return;
+      const latlngs = coords.map(([lon, lat]) => [lat, lon]);
+      const p = f.properties || {};
+      L.polyline(latlngs, {
+        color: p.loading_percent > 80 ? "#e2493d" : p.loading_percent > 60 ? "#e8b339" : "#3ecf7e",
+        weight: p.loading_percent > 80 ? 4 : 3,
+        opacity: 0.9,
+      }).bindPopup(
+        "<b>Line N" + p.from_bus + "-N" + p.to_bus + "</b><br/>" +
+        "Loading: " + (p.loading_percent != null ? p.loading_percent.toFixed(1) : "—") + "%"
+      ).addTo(featureGroup);
+    });
+
+    // Draw points
+    geojson.features.filter(f => f.geometry?.type === "Point").forEach(f => {
+      const coords = f.geometry.coordinates;
+      if (!coords || coords.length < 2) return;
+      const [lon, lat] = coords;
+      const p = f.properties || {};
+      const vm = p.voltage_pu;
+      L.circleMarker([lat, lon], {
+        radius: p.is_substation ? 10 : 7,
+        color: "#0a0f14", weight: 2,
+        fillColor: vm < 0.95 ? "#e2493d" : vm < 0.98 ? "#e8b339" : "#4f8fd1",
+        fillOpacity: 1,
+      }).bindPopup(
+        "<b>Bus N" + p.bus_id + (p.is_substation ? " (substation)" : "") + "</b><br/>" +
+        "Voltage: " + (vm != null ? vm.toFixed(4) : "—") + " pu"
+      ).addTo(featureGroup);
+    });
+
+    if (!map._didFitBounds) {
+      const bounds = featureGroup.getBounds();
+      if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [40, 40] });
+        map._didFitBounds = true;
+      }
+    }
+  }, [geojson]);
+
   const violationCount = status ? status.violations : 0;
   const minV = status ? Math.min(...status.buses.map(b => b.vm_pu)).toFixed(3) : "—";
   const maxLoading = status ? Math.max(...status.lines.map(l => l.loading_percent)).toFixed(1) : "—";
@@ -204,6 +309,15 @@ function App() {
     setDerKind(k);
     if (sliderTimer.current) { clearTimeout(sliderTimer.current); sliderTimer.current = null; }
     runSlider(adoption, k);
+  };
+
+  const runSweep = () => {
+    setLoading(true);
+    fetch(`${API}/hosting-capacity?kind=${derKind}&step_pct=5`)
+      .then(r => r.json())
+      .then(setSweep)
+      .catch(() => {})
+      .finally(() => setLoading(false));
   };
 
   const resetAll = () => {
@@ -242,6 +356,30 @@ function App() {
               <span className="stat-label">Max line loading</span>
               <span className="stat-value">{maxLoading}%</span>
             </div>
+          </div>
+          <button className="btn primary" onClick={runSweep} disabled={loading}>Find hosting capacity</button>
+          {sweep && (
+            <div style={{marginTop:12, fontSize:12.5, color:"var(--ink-dim)"}}>
+              First violation at{" "}
+              <b style={{color:"var(--accent)", fontFamily:"var(--mono)"}}>{sweep.hosting_capacity_pct}%</b> adoption
+            </div>
+          )}
+
+          // Add view toggle buttons in the graph-wrap div:
+          <div className="view-toggle">
+            <button className={view === "graph" ? "active" : ""} onClick={() => setView("graph")}>Graph</button>
+            <button className={view === "map" ? "active" : ""} onClick={() => setView("map")}>Map</button>
+          </div>
+
+          // Add map container alongside cy:
+          <div className={`view-container ${view === "map" ? "visible" : "hidden"}`}>
+            <div id="map" ref={mapRef}></div>
+            {!mapReady && <div className="map-loading">Initializing map…</div>}
+          </div>
+
+          // Update graph container:
+          <div className={`view-container ${view === "graph" ? "visible" : "hidden"}`}>
+            <div id="cy" ref={cyRef}></div>
           </div>
 
           <div className="card">
