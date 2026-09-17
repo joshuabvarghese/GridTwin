@@ -30,19 +30,19 @@ def test_status_matches_baseline():
     assert body["violations"] == 0
 
 
-def test_simulate_der_valid_request():
-    resp = client.post("/simulate-der", json={"node_id": 17, "kind": "solar", "kw": 50})
+def test_grid_simulate_valid_request():
+    resp = client.post("/api/grid/simulate", json={"node_id": 17, "solar_kw": 50})
     assert resp.status_code == 200
-    assert resp.json()["der_count"] == 1
+    assert "bus_voltages" in resp.json()
 
 
-def test_simulate_der_unknown_bus_returns_400():
-    resp = client.post("/simulate-der", json={"node_id": 9999, "kind": "solar", "kw": 50})
+def test_grid_simulate_unknown_bus_returns_400():
+    resp = client.post("/api/grid/simulate", json={"node_id": 9999, "solar_kw": 50})
     assert resp.status_code == 400
 
 
 def test_reset_clears_previous_ders():
-    client.post("/simulate-der", json={"node_id": 17, "kind": "solar", "kw": 50})
+    client.post("/api/grid/simulate", json={"node_id": 17, "solar_kw": 50})
     resp = client.post("/reset")
     assert resp.json()["der_count"] == 0
 
