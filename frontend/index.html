@@ -247,9 +247,6 @@
 const { useState, useEffect, useRef, useCallback } = React;
 const API = window.GRIDTWIN_API_BASE || "";
 
-// Shared POST-JSON helper - every mutating endpoint call below sends a
-// JSON body the same way, so this replaces that repeated fetch(...,
-// { method: "POST", headers: {...}, body: JSON.stringify(...) }) boilerplate.
 function postJSON(path, body) {
   return fetch(`${API}${path}`, {
     method: "POST",
@@ -258,13 +255,9 @@ function postJSON(path, body) {
   });
 }
 
-// One status->color mapping, reused everywhere a bus/line needs coloring.
-// Backend already classifies each bus/line as "normal" | "warning" |
-// "overloaded" (see network.py's status_report / geo.py's build_geojson),
-// so the frontend just renders that classification - it never re-derives
-// the voltage/loading thresholds itself. Only the "normal" (and, for
-// lines, "unknown") color differs by view, since the graph and map use
-// different palettes (see the legends in each view).
+// Backend classifies each bus/line as normal/warning/overloaded; this
+// just maps that to a color. normalColor/unknownColor differ by view
+// since the graph and map use different palettes.
 function colorForStatus(status, normalColor, unknownColor = normalColor) {
   if (status === "overloaded") return "#e2493d";
   if (status === "warning") return "#e8b339";
