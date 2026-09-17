@@ -1,8 +1,7 @@
 """
-GridTwin CIM Network Instantiation
-
-Builds the IEEE 33-bus radial feeder as real zepben.ewb CIM objects (EnergySource, ConnectivityNode, AcLineSegment + PerLengthSequenceImpedance, EnergyConsumer) from the standard Baran & Wu dataset in `ieee33_data.py`.
-
+Builds the IEEE 33-bus radial feeder as real zepben.ewb CIM objects
+(EnergySource, ConnectivityNode, AcLineSegment + PerLengthSequenceImpedance,
+EnergyConsumer) from the Baran & Wu dataset in ieee33_data.py.
 """
 from __future__ import annotations
 import zepben.ewb as ewb
@@ -21,8 +20,10 @@ def _cn_mrid(bus: int) -> str:
 def build_cim_network() -> tuple[ewb.NetworkService, ewb.EnergySource]:
     """Full IEEE 33-bus radial feeder as zepben.ewb CIM objects.
 
-    Each branch gets its own PerLengthSequenceImpedance rather than a shared one, since the published dataset gives one impedance per branch, not a per-km conductor spec. 
-    Line length is fixed at 1 km so r_ohm_per_km/x_ohm_per_km equal the published per-branch ohm values directly.
+    Each branch gets its own PerLengthSequenceImpedance, since the
+    dataset gives one impedance per branch rather than a per-km
+    conductor spec. Line length is fixed at 1 km so r_ohm_per_km /
+    x_ohm_per_km equal the published per-branch ohm values directly.
     """
     ns = ewb.NetworkService()
 
@@ -46,11 +47,9 @@ def build_cim_network() -> tuple[ewb.NetworkService, ewb.EnergySource]:
         mrid = f"line-{a}-{b}"
         plsi = ewb.PerLengthSequenceImpedance(mrid=f"plsi-{a}-{b}", r=r, x=x)
         ns.add(plsi)
-        # NOTE (real library quirk, confirmed by testing on the toy feeder,
-        # not a typo): create_ac_line_segment() *requires* an mrid kwarg
-        # or it raises TypeError - but it then ignores the value and
-        # assigns its own random UUID anyway. `name` is respected, so
-        # that's the field the converter uses for line identification.
+        # create_ac_line_segment() requires an mrid kwarg but ignores it
+        # and assigns its own UUID - name is what actually sticks, so
+        # that's what converter.py uses for line identification.
         line = ns.create_ac_line_segment(
             cn_by_bus[a], cn_by_bus[b], mrid=mrid, length=1000.0,
         )

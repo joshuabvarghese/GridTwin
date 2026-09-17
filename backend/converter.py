@@ -1,12 +1,7 @@
 """
-GridTwin CIM -> pandapower Converter
-
-Traverses a zepben.ewb NetworkService's CIM objects (ConnectivityNode,
-EnergySource, AcLineSegment, EnergyConsumer) and builds an equivalent
-pandapower network. This is the layer that lets everything downstream
-(power flow, hosting-capacity sweeps, the API) stay CIM-agnostic: swap
-`cim_network.build_cim_network()` for a live EWB-server query and this
-function's input type doesn't change.
+Converts a zepben.ewb NetworkService's CIM objects (ConnectivityNode,
+EnergySource, AcLineSegment, EnergyConsumer) into an equivalent
+pandapower network.
 """
 from __future__ import annotations
 import zepben.ewb as ewb

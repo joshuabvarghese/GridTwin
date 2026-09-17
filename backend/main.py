@@ -33,27 +33,20 @@ app.add_middleware(
 
 feeder = Feeder()
 
-# FastAPI executes *sync* endpoints in a threadpool, so two requests can touch the shared `feeder` object concurrently (e.g. a slider drag firing rapid /adoption-slider POSTs). pandapower solves mutate net.res_* in place, so any endpoint that mutates DER state or runs a solve must hold this lock.
-# single-feeder app; to scale out, give each request its own Feeder (or a deepcopy of the net) instead of sharing one instance.
+# One Feeder shared by every request - simple, and fine for a
+# single-demo deployment where every viewer sees the same grid state.
+# Endpoints that mutate DER state or run a solve take this lock so
+# concurrent requests (e.g. a dragged slider firing rapid POSTs) don't
+# race on the same pandapower net.
 _feeder_lock = threading.Lock()
 
 
 @app.on_event("startup")
 def _warm_caches():
-    """Pre-pay two one-time costs at boot instead of on a live user's
-    first request:
-
-    1. pandapower's first power-flow solve triggers numba JIT-compiling
-       its solver kernels, which is slow; every solve after that is fast.
-    2. Every line's street-routed geometry needs one OSRM HTTP round trip
-       the first time that pair of coordinates is looked up (cached
-       forever after - see geo.get_osrm_route) - moving that to startup
-       means it lands in Render's normal boot window instead of blocking
-       whichever user opens the Map tab first.
-
-    Best-effort for both: any solve/OSRM hiccup here is harmless, since
-    the same fallback (real solve retried, or straight-line route) would
-    kick in on the first real request anyway.
+    """Run a solve and pre-fetch every line's map route at boot instead
+    of on the first user's request (numba JIT + OSRM round trips are
+    slow the first time, instant after). Best-effort: any failure here
+    just means the first real request pays the cost instead.
     """
     start = time.monotonic()
     try:
@@ -69,20 +62,14 @@ def _warm_caches():
 
 
 def _safe(fn):
-    """Run `fn()`, translating a bad input into 400 and anything else most commonly a non-convergent power flow) into 500. Centralizes the
-    try/except pattern that used to be copy-pasted into every endpoint below that mutates DER state or runs a solve."""
+    """Run fn(), turning a bad input into 400 and anything else
+    (usually a non-convergent power flow) into 500."""
     try:
         return fn()
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
         raise HTTPException(500, f"Power flow did not converge: {e}")
-
-
-class DERRequest(BaseModel):
-    node_id: int
-    kind: str = "ev"     # "ev" | "solar"
-    kw: float = 22.0
 
 
 class AdoptionRequest(BaseModel):
@@ -95,15 +82,8 @@ class GridSimulateRequest(BaseModel):
     solar_kw: float
 
 
-class HostingCapacityRequest(BaseModel):
-    node_id: int
-    max_solar_kw: float = 500.0
-    step_kw: float = 5.0
-
-
 @app.get("/network")
 def get_network():
-    # Read-only view of the topology; no lock needed.
     return {
         "nodes": [{"id": n, **d} for n, d in feeder.graph.nodes(data=True)],
         "edges": [{"source": u, "target": v, **d} for u, v, d in feeder.graph.edges(data=True)],
@@ -120,12 +100,6 @@ def get_status():
 def _simulate(node_id: int, kind: str, kw: float) -> dict:
     feeder.add_der(node_id, kind, kw)
     return feeder.run_powerflow()
-
-
-@app.post("/simulate-der")
-def simulate_der(req: DERRequest):
-    with _feeder_lock:
-        return _safe(lambda: _simulate(req.node_id, req.kind, req.kw))
 
 
 @app.post("/reset")
@@ -150,7 +124,8 @@ def adoption_slider(req: AdoptionRequest):
 
 @app.get("/hosting-capacity")
 def hosting_capacity(kind: str = "solar", step_pct: int = 5):
-    # Holds the lock for the whole sweep (21 solves) so no other request can perturb feeder state mid-sweep. Blocks other callers for ~1-2s.
+    # Holds the lock for the whole sweep (~21 solves, 1-2s) so nothing
+    # else can perturb feeder state mid-sweep.
     with _feeder_lock:
         return feeder.hosting_capacity_sweep(kind=kind, step_pct=step_pct)
 
@@ -162,26 +137,9 @@ def health():
 
 @app.get("/api/network/geojson")
 def api_network_geojson():
-    """GeoJSON view of the current feeder state for the map/GIS frontend.
-
-    Nodes (ConnectivityNode) -> Point features: bus_id, voltage_pu, violation_status.
-    Lines (AcLineSegment)    -> LineString features: loading_percent, r_ohm, x_ohm.
-    Uses the feeder's current DER/loading state (same state /status reflects) -
-    call /reset or /adoption-slider first if you want a different scenario.
-    """
+    """Current feeder state as GeoJSON, for the map view."""
     with _feeder_lock:
         return _safe(feeder.to_geojson)
-
-
-@app.get("/api/grid/topology")
-def api_grid_topology():
-    elements = [
-        {"data": {"id": str(n), **d}} for n, d in feeder.graph.nodes(data=True)
-    ] + [
-        {"data": {"source": str(u), "target": str(v), **d}}
-        for u, v, d in feeder.graph.edges(data=True)
-    ]
-    return {"elements": elements}
 
 
 @app.post("/api/grid/simulate")
@@ -198,15 +156,6 @@ def api_grid_simulate(req: GridSimulateRequest):
         return _safe(go)
 
 
-@app.post("/api/grid/hosting-capacity")
-def api_grid_hosting_capacity(req: HostingCapacityRequest):
-    def go():
-        return feeder.hosting_capacity_for_node(
-            req.node_id, max_solar_kw=req.max_solar_kw, step_kw=req.step_kw,
-        )
-
-    with _feeder_lock:
-        return _safe(go)
 _frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
 if _frontend_dir.is_dir():
     print(f"[gridtwin] serving frontend from {_frontend_dir}")
