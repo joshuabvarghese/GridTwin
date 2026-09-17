@@ -88,7 +88,6 @@
   .legend .item { display: flex; align-items: center; gap: 6px; color: var(--ink-dim); white-space: nowrap; }
   .legend .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .legend .line { width: 14px; height: 3px; border-radius: 2px; flex-shrink: 0; }
-  .legend .line.dashed { background: none !important; border-top: 2px dashed var(--accent); height: 0; }
 
   .leaflet-popup-content-wrapper, .leaflet-popup-tip {
     background: var(--panel); color: var(--ink); border: 1px solid var(--panel-line);
@@ -270,14 +269,6 @@ const lineStatusColor = (status) => colorForStatus(status, "#2a3944");        //
 const busGeoColor = (status) => colorForStatus(status, "#4f8fd1");            // map bus: normal = blue
 const lineGeoColor = (status) => colorForStatus(status, "#3ecf7e", "#2a3944"); // map line: normal = green, unknown = gray
 
-const TIE_SWITCHES = [
-  { id: "tie-1", from: 7, to: 20, label: "Tie 7-20" },
-  { id: "tie-2", from: 11, to: 21, label: "Tie 11-21" },
-  { id: "tie-3", from: 17, to: 32, label: "Tie 17-32" },
-  { id: "tie-4", from: 24, to: 28, label: "Tie 24-28" },
-  { id: "tie-5", from: 8, to: 14, label: "Tie 8-14" },
-];
-
 let toastId = 0;
 
 function App() {
@@ -300,7 +291,6 @@ function App() {
   const [injectionKw, setInjectionKw] = useState(50);
   const [injectionBus, setInjectionBus] = useState(null);
   const [injecting, setInjecting] = useState(false);
-  const [switchStates, setSwitchStates] = useState({});
   const [heatmapVisible, setHeatmapVisible] = useState(true);
   const [toasts, setToasts] = useState([]);
   const [timeOfDay, setTimeOfDay] = useState(12);
@@ -410,12 +400,9 @@ function App() {
 
     if (map._featureGroup) map.removeLayer(map._featureGroup);
     if (map._heatLayer) map.removeLayer(map._heatLayer);
-    if (map._switchLayers) map._switchLayers.forEach(l => map.removeLayer(l));
 
     const featureGroup = L.featureGroup().addTo(map);
     map._featureGroup = featureGroup;
-    const switchLayers = [];
-    map._switchLayers = switchLayers;
     const heatPoints = [];
 
     geojson.features.filter(f => f.geometry?.type === "LineString").forEach(f => {
@@ -461,30 +448,6 @@ function App() {
       map._heatLayer = heat;
     }
 
-    TIE_SWITCHES.forEach(sw => {
-      const fromF = geojson.features.find(f => f.properties?.bus_id === sw.from);
-      const toF = geojson.features.find(f => f.properties?.bus_id === sw.to);
-      if (!fromF || !toF) return;
-      const [fLon, fLat] = fromF.geometry.coordinates;
-      const [tLon, tLat] = toF.geometry.coordinates;
-      const isClosed = !!switchStates[sw.id];
-      const color = isClosed ? "#4fd1c5" : "#5a6d78";
-
-      const line = L.polyline([[fLat, fLon], [tLat, tLon]], {
-        color, weight: 2, opacity: isClosed ? 0.85 : 0.5, dashArray: "6, 6",
-      }).bindPopup("<b>" + sw.label + "</b><br/>Status: " + (isClosed ? "Closed" : "Open") + " (visual only)");
-      line.on("click", () => toggleSwitch(sw));
-      line.addTo(map);
-      switchLayers.push(line);
-
-      const marker = L.circleMarker([(fLat + tLat) / 2, (fLon + tLon) / 2], {
-        radius: isClosed ? 6 : 4, color, weight: 2, fillColor: color, fillOpacity: 0.85,
-      }).bindPopup("<b>" + sw.label + "</b><br/>Status: " + (isClosed ? "Closed" : "Open") + " (visual only)");
-      marker.on("click", () => toggleSwitch(sw));
-      marker.addTo(map);
-      switchLayers.push(marker);
-    });
-
     if (!map._didFitBounds) {
       const bounds = featureGroup.getBounds();
       if (bounds.isValid()) {
@@ -492,15 +455,7 @@ function App() {
         map._didFitBounds = true;
       }
     }
-  }, [geojson, heatmapVisible, switchStates]);
-
-  const toggleSwitch = (sw) => {
-    setSwitchStates(prev => {
-      const next = { ...prev, [sw.id]: !prev[sw.id] };
-      pushToast(sw.label + " set to " + (next[sw.id] ? "closed" : "open") + " (visual only)");
-      return next;
-    });
-  };
+  }, [geojson, heatmapVisible]);
 
   // 24hr timeline
   const runTimeline = useCallback(async (hour) => {
@@ -647,7 +602,6 @@ function App() {
 
   const resetAll = () => {
     setAdoption(0);
-    setSwitchStates({});
     setTimelineActive(false);
     setTimeOfDay(12);
     fetch(`${API}/reset`, { method: "POST" }).then(r => r.json()).then(setStatus);
@@ -699,7 +653,6 @@ function App() {
               <div className="item"><span className="dot" style={{background:"#4f8fd1"}}></span>bus normal</div>
               <div className="item"><span className="dot" style={{background:"#e8b339"}}></span>bus warning</div>
               <div className="item"><span className="dot" style={{background:"#e2493d"}}></span>bus violation</div>
-              <div className="item"><span className="line dashed"></span>tie switch</div>
             </div>
           )}
         </div>
@@ -809,22 +762,6 @@ function App() {
               </div>
             </div>
             <div className="caption" style={{marginTop:8}}>Heatmap shows voltage gradient across the feeder — red indicates low voltage.</div>
-          </div>
-
-          <div className={`card ${view !== "map" ? "hidden" : ""}`}>
-            <h2>Tie switches <span className="view-badge">map only</span></h2>
-            {TIE_SWITCHES.map(sw => (
-              <div className="switch-row" key={sw.id}>
-                <span className="switch-label">{sw.label}</span>
-                <span className={`switch-state ${switchStates[sw.id] ? "closed" : "open"}`}>
-                  {switchStates[sw.id] ? "closed" : "open"}
-                </span>
-                <div className={`switch-toggle ${switchStates[sw.id] ? "active" : ""}`} onClick={() => toggleSwitch(sw)}>
-                  <div className="knob"></div>
-                </div>
-              </div>
-            ))}
-            <div className="caption">Visual only — the backend does not model tie-switch reconfiguration.</div>
           </div>
 
           {/* Always visible: Export & Selected Node */}
