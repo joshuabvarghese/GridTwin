@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import geo
+import timeseries
 from network import Feeder
 
 app = FastAPI(title="GridTwin API", version="0.1.0")
@@ -128,6 +129,23 @@ def hosting_capacity(kind: str = "solar", step_pct: int = 5):
     # else can perturb feeder state mid-sweep.
     with _feeder_lock:
         return feeder.hosting_capacity_sweep(kind=kind, step_pct=step_pct)
+
+
+@app.get("/daily-profile")
+def daily_profile(kind: str = "solar", adoption_pct: float = 100.0):
+    # Holds the lock for the whole day (24 solves, ~1-2s) - same
+    # reasoning as /hosting-capacity above.
+    with _feeder_lock:
+        return _safe(lambda: timeseries.run_daily_profile(feeder, kind=kind, adoption_pct=adoption_pct))
+
+
+@app.get("/annual-profile")
+def annual_profile(kind: str = "solar", adoption_pct: float = 100.0):
+    # Holds the lock for the whole sweep (288 solves, a few seconds) -
+    # see timeseries.run_annual_profile's docstring for why it's 288
+    # (12 representative months) and not a full 8,760/17,520-point year.
+    with _feeder_lock:
+        return _safe(lambda: timeseries.run_annual_profile(feeder, kind=kind, adoption_pct=adoption_pct))
 
 
 @app.get("/health")

@@ -182,6 +182,10 @@
   .switch-toggle.active .knob { transform: translateX(16px); background: var(--bg); }
 
   .timeline-row { margin-top: 12px; }
+  .monthly-bars { display: flex; align-items: flex-end; gap: 3px; height: 64px; margin-top: 10px; }
+  .month-bar { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+  .month-bar .bar-fill { width: 100%; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 3px; }
+  .month-bar .bar-label { font-size: 9px; color: var(--ink-dim); margin-top: 3px; }
   .timeline-labels {
     display: flex; justify-content: space-between; font-size: 10px;
     color: var(--ink-dim); font-family: var(--mono);
@@ -243,7 +247,7 @@
 <body>
 <div id="root"></div>
 <script type="text/babel" data-presets="react">
-const { useState, useEffect, useRef, useCallback } = React;
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const API = window.GRIDTWIN_API_BASE || "";
 
 function postJSON(path, body) {
@@ -264,10 +268,42 @@ function colorForStatus(status, normalColor, unknownColor = normalColor) {
   return unknownColor;
 }
 
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 const statusColor = (status) => colorForStatus(status, "#3ecf7e");           // graph bus: normal = green
 const lineStatusColor = (status) => colorForStatus(status, "#2a3944");        // graph line: normal = unstyled gray
 const busGeoColor = (status) => colorForStatus(status, "#4f8fd1");            // map bus: normal = blue
 const lineGeoColor = (status) => colorForStatus(status, "#3ecf7e", "#2a3944"); // map line: normal = green, unknown = gray
+
+// Re-colors a fetched geojson (fixed topology + coordinates) with a
+// different hour's status report, so scrubbing the daily-profile
+// timeline on the map doesn't need a server round trip per hour - only
+// the properties change, never the geometry.
+function mergeGeojsonWithStatus(base, statusReport) {
+  if (!base || !statusReport) return base;
+  const busByNode = {};
+  statusReport.buses.forEach(b => { busByNode[b.node_id] = b; });
+  const lineByPair = {};
+  statusReport.lines.forEach(l => {
+    lineByPair[`${l.from_bus}-${l.to_bus}`] = l;
+    lineByPair[`${l.to_bus}-${l.from_bus}`] = l;
+  });
+  return {
+    ...base,
+    features: base.features.map(f => {
+      const p = f.properties || {};
+      if (f.geometry?.type === "Point") {
+        const b = busByNode[p.bus_id];
+        return b ? { ...f, properties: { ...p, voltage_pu: b.vm_pu, violation_status: b.status } } : f;
+      }
+      if (f.geometry?.type === "LineString") {
+        const l = lineByPair[`${p.from_bus}-${p.to_bus}`];
+        return l ? { ...f, properties: { ...p, loading_percent: l.loading_percent, status: l.status } } : f;
+      }
+      return f;
+    }),
+  };
+}
 
 let toastId = 0;
 
@@ -295,6 +331,10 @@ function App() {
   const [toasts, setToasts] = useState([]);
   const [timeOfDay, setTimeOfDay] = useState(12);
   const [timelineActive, setTimelineActive] = useState(false);
+  const [dailyProfile, setDailyProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [annualProfile, setAnnualProfile] = useState(null);
+  const [annualLoading, setAnnualLoading] = useState(false);
   const [exportData, setExportData] = useState(null);
   const [exporting, setExporting] = useState(false);
   const sliderTimer = useRef(null);
@@ -387,16 +427,37 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (view === "map") {
-      fetchGeojson();
-      setTimeout(() => mapInstance.current && mapInstance.current.invalidateSize(), 60);
+    if (view === "map") setTimeout(() => mapInstance.current && mapInstance.current.invalidateSize(), 60);
+  }, [view]);
+
+  // Live mode: refetch from the server whenever a real backend action
+  // (inject, reset, non-timeline slider) changes status.
+  useEffect(() => {
+    if (view === "map" && !timelineActive) fetchGeojson();
+  }, [view, status, timelineActive, fetchGeojson]);
+
+  // Timeline mode: fetch topology/coordinates once, then never again -
+  // status for each hour comes from dailyProfile instead (see
+  // displayGeojson below), so refetching here would just be wasted
+  // requests (and, since fetchGeojson updates geojson, a loop if this
+  // effect depended on its own result unconditionally).
+  useEffect(() => {
+    if (view === "map" && timelineActive && !geojson) fetchGeojson();
+  }, [view, timelineActive, geojson, fetchGeojson]);
+
+  // Geometry never changes hour-to-hour, only status - merge client-side
+  // instead of re-fetching from the server on every scrub.
+  const displayGeojson = useMemo(() => {
+    if (timelineActive && dailyProfile) {
+      return mergeGeojsonWithStatus(geojson, dailyProfile.hours[timeOfDay]);
     }
-  }, [view, status, fetchGeojson]);
+    return geojson;
+  }, [geojson, timelineActive, dailyProfile, timeOfDay]);
 
   // Draw map
   useEffect(() => {
     const map = mapInstance.current;
-    if (!map || !geojson || !geojson.features) return;
+    if (!map || !displayGeojson || !displayGeojson.features) return;
 
     if (map._featureGroup) map.removeLayer(map._featureGroup);
     if (map._heatLayer) map.removeLayer(map._heatLayer);
@@ -405,7 +466,7 @@ function App() {
     map._featureGroup = featureGroup;
     const heatPoints = [];
 
-    geojson.features.filter(f => f.geometry?.type === "LineString").forEach(f => {
+    displayGeojson.features.filter(f => f.geometry?.type === "LineString").forEach(f => {
       const coords = f.geometry.coordinates;
       if (!coords || coords.length < 2) return;
       const latlngs = coords.map(([lon, lat]) => [lat, lon]);
@@ -421,7 +482,7 @@ function App() {
       ).addTo(featureGroup);
     });
 
-    geojson.features.filter(f => f.geometry?.type === "Point").forEach(f => {
+    displayGeojson.features.filter(f => f.geometry?.type === "Point").forEach(f => {
       const coords = f.geometry.coordinates;
       if (!coords || coords.length < 2) return;
       const [lon, lat] = coords;
@@ -457,52 +518,77 @@ function App() {
     }
   }, [geojson, heatmapVisible]);
 
-  // 24hr timeline
-  const runTimeline = useCallback(async (hour) => {
-    setLoading(true);
+  // 24hr timeline - backed by /daily-profile, a real per-hour power
+  // flow with load/DER output scaled by time-of-day (see backend
+  // timeseries.py), not a client-side approximation.
+  const fetchDailyProfile = useCallback(async (pct, kind) => {
+    setProfileLoading(true);
     try {
-      const solarFactor = Math.max(0, Math.sin((hour - 6) / 12 * Math.PI));
-      const morningPeak = Math.exp(-Math.pow((hour - 8) / 3, 2));
-      const eveningPeak = Math.exp(-Math.pow((hour - 20) / 2.5, 2));
-      const evFactor = Math.max(morningPeak, eveningPeak) * 0.7;
-      const factor = derKind === "solar" ? solarFactor : evFactor;
-      const effectivePct = Math.round(adoption * factor);
-
-      const res = await postJSON("/adoption-slider", { adoption_pct: Math.min(100, effectivePct), kind: derKind });
-      if (!res.ok) throw new Error("Timeline simulation failed");
+      const res = await fetch(`${API}/daily-profile?kind=${kind}&adoption_pct=${pct}`);
+      if (!res.ok) throw new Error("Daily profile failed");
       const data = await res.json();
-      setStatus(data);
-      setExportData(prev => ({
-        ...prev,
-        timeline: {
-          hour,
-          factor,
-          effectivePct: Math.min(100, effectivePct),
-          violations: data.violations,
-          minVoltage: Math.min(...data.buses.map(b => b.vm_pu)),
-          maxLoading: Math.max(...data.lines.map(l => l.loading_percent)),
-        }
-      }));
-      if (view === "map") setTimeout(fetchGeojson, 250);
-      pushToast(hour + ":00 — " + derKind + " at " + Math.round(effectivePct) + "% effective");
+      setDailyProfile(data);
+      return data;
     } catch (err) {
       pushToast(err.message, "error");
+      return null;
     } finally {
-      setLoading(false);
+      setProfileLoading(false);
     }
-  }, [derKind, adoption, view, fetchGeojson, pushToast]);
+  }, [pushToast]);
+
+  const applyHour = useCallback((hour, profile) => {
+    const data = profile || dailyProfile;
+    if (!data) return;
+    const hourData = data.hours[hour];
+    setStatus(hourData);
+    setExportData(prev => ({
+      ...prev,
+      timeline: {
+        hour,
+        loadFactor: hourData.load_factor,
+        derFactor: hourData.der_factor,
+        violations: hourData.violations,
+        minVoltage: Math.min(...hourData.buses.map(b => b.vm_pu)),
+        maxLoading: Math.max(...hourData.lines.map(l => l.loading_percent)),
+      }
+    }));
+    pushToast(String(hour).padStart(2, '0') + ":00 — load " + Math.round(hourData.load_factor * 100) +
+      "%, " + derKind + " output " + Math.round(hourData.der_factor * 100) + "%");
+  }, [dailyProfile, derKind, pushToast]);
 
   const handleTimelineChange = (hour) => {
     setTimeOfDay(hour);
-    if (timelineActive) runTimeline(hour);
+    if (timelineActive) applyHour(hour);
   };
 
-  const toggleTimeline = () => {
-    setTimelineActive(!timelineActive);
-    if (!timelineActive) {
-      runTimeline(timeOfDay);
-    } else {
+  const toggleTimeline = async () => {
+    if (timelineActive) {
+      setTimelineActive(false);
+      setDailyProfile(null);
       runSlider(adoption, derKind);
+      return;
+    }
+    const data = await fetchDailyProfile(adoption, derKind);
+    setTimelineActive(true);
+    if (data) applyHour(timeOfDay, data);
+  };
+
+  // Seasonal (12-month) analysis - a real per-month sweep on the
+  // backend (timeseries.run_annual_profile), not client-side. Takes a
+  // few seconds since it's 288 power-flow solves, so this has its own
+  // loading state rather than reusing profileLoading.
+  const runAnnualProfile = async () => {
+    setAnnualLoading(true);
+    try {
+      const res = await fetch(`${API}/annual-profile?kind=${derKind}&adoption_pct=${adoption}`);
+      if (!res.ok) throw new Error("Annual profile failed");
+      const data = await res.json();
+      setAnnualProfile(data);
+    } catch (err) {
+      pushToast(err.message, "error");
+    } finally {
+      setAnnualLoading(false);
     }
   };
 
@@ -586,12 +672,22 @@ function App() {
   const onSliderChange = (v) => {
     setAdoption(v);
     if (sliderTimer.current) clearTimeout(sliderTimer.current);
-    sliderTimer.current = setTimeout(() => runSlider(v, derKind), 180);
+    sliderTimer.current = setTimeout(() => {
+      if (timelineActive) {
+        fetchDailyProfile(v, derKind).then(data => data && applyHour(timeOfDay, data));
+      } else {
+        runSlider(v, derKind);
+      }
+    }, 180);
   };
   const onKindChange = (k) => {
     setDerKind(k);
     if (sliderTimer.current) { clearTimeout(sliderTimer.current); sliderTimer.current = null; }
-    runSlider(adoption, k);
+    if (timelineActive) {
+      fetchDailyProfile(adoption, k).then(data => data && applyHour(timeOfDay, data));
+    } else {
+      runSlider(adoption, k);
+    }
   };
 
   const runSweep = () => {
@@ -603,6 +699,7 @@ function App() {
   const resetAll = () => {
     setAdoption(0);
     setTimelineActive(false);
+    setDailyProfile(null);
     setTimeOfDay(12);
     fetch(`${API}/reset`, { method: "POST" }).then(r => r.json()).then(setStatus);
     if (view === "map") setTimeout(fetchGeojson, 250);
@@ -706,7 +803,7 @@ function App() {
             <div className="switch-row">
               <span className="switch-label">Timeline simulation</span>
               <span className={`switch-state ${timelineActive ? "closed" : "open"}`}>
-                {timelineActive ? "on" : "off"}
+                {profileLoading ? "loading…" : (timelineActive ? "on" : "off")}
               </span>
               <div className={`switch-toggle ${timelineActive ? "active" : ""}`} onClick={toggleTimeline}>
                 <div className="knob"></div>
@@ -716,22 +813,58 @@ function App() {
               <div className="timeline-labels">
                 <span>00:00</span>
                 <span className="now">{String(timeOfDay).padStart(2, '0')}:00</span>
-                <span>24:00</span>
+                <span>23:00</span>
               </div>
               <input
                 type="range"
                 min="0"
-                max="24"
+                max="23"
                 step="1"
                 value={timeOfDay}
                 onChange={e => handleTimelineChange(Number(e.target.value))}
-                disabled={!timelineActive}
+                disabled={!timelineActive || profileLoading}
               />
               <div className="timeline-value">
-                {timelineActive ? (derKind === 'solar' ? 'Solar peak at noon' : 'EV peak at evening') : 'Paused'}
+                {timelineActive && dailyProfile
+                  ? `${dailyProfile.hours[timeOfDay].violations} violation(s) · worst hour ${String(dailyProfile.worst_hour).padStart(2, '0')}:00`
+                  : "Paused"}
               </div>
             </div>
-            <div className="caption">Simulates solar generation peaking at midday versus EV load peaking in evening.</div>
+            <div className="caption">Re-solves the power flow once per hour with load and {derKind === 'solar' ? 'solar output' : 'EV charging'} scaled by a real daily profile (see PROFILES.md) - a real time-series sweep, not a rescaled snapshot.</div>
+          </div>
+
+          {/* Always visible: Seasonal (12-month) analysis */}
+          <div className="card">
+            <h2>Seasonal analysis <span className="view-badge">12mo</span></h2>
+            <button className="btn primary" onClick={runAnnualProfile} disabled={annualLoading}>
+              {annualLoading ? "Running 288 power flows…" : "Run 12-month analysis"}
+            </button>
+            {annualProfile && (
+              <div style={{marginTop: "10px"}}>
+                <div className="stat-row">
+                  <span>Worst month</span>
+                  <span className="stat-value">{MONTH_NAMES[annualProfile.worst_month - 1]}</span>
+                </div>
+                <div className="stat-row">
+                  <span>Representative hours simulated</span>
+                  <span className="stat-value">{annualProfile.representative_hours_simulated}</span>
+                </div>
+                <div className="monthly-bars">
+                  {annualProfile.months.map(m => {
+                    const total = annualProfile.months.reduce((max, x) =>
+                      Math.max(max, x.hours.reduce((s, h) => s + h.violations, 0)), 0) || 1;
+                    const v = m.hours.reduce((s, h) => s + h.violations, 0);
+                    return (
+                      <div className="month-bar" key={m.month} title={`${MONTH_NAMES[m.month - 1]}: ${v} violation-hours`}>
+                        <div className="bar-fill" style={{height: `${Math.max(3, (v / total) * 100)}%`}}></div>
+                        <span className="bar-label">{MONTH_NAMES[m.month - 1][0]}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <div className="caption">Twelve representative days across a real year (real Canberra load + real solar generation, one day per calendar month - see PROFILES.md), not one blended day or a fabricated year.</div>
           </div>
 
           {/* Always visible: Bus Injection */}

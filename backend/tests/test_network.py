@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import MagicMock, patch
 from network import Feeder
 
 
@@ -94,3 +95,23 @@ def test_status_report_bands_match_ansi_c84_thresholds(feeder):
             assert bus["status"] == "warning"
         else:
             assert bus["status"] == "normal"
+
+
+def test_load_cim_network_uses_local_build_by_default(monkeypatch):
+    monkeypatch.delenv("GRIDTWIN_EWB_HOST", raising=False)
+    with patch("network.ewb_client.fetch_feeder") as fetch_feeder:
+        Feeder._load_cim_network()
+    fetch_feeder.assert_not_called()
+
+
+def test_load_cim_network_uses_ewb_server_when_configured(monkeypatch):
+    monkeypatch.setenv("GRIDTWIN_EWB_HOST", "ewb.example.com")
+    monkeypatch.setenv("GRIDTWIN_EWB_FEEDER_MRID", "feeder-99")
+    monkeypatch.delenv("GRIDTWIN_EWB_TOKEN", raising=False)
+    fake_service = MagicMock()
+    with patch("network.ewb_client.fetch_feeder", return_value=fake_service) as fetch_feeder:
+        ns, source = Feeder._load_cim_network()
+
+    fetch_feeder.assert_called_once_with("ewb.example.com", "feeder-99", port=50051, token=None)
+    assert ns is fake_service
+    assert source is None

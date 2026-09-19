@@ -58,3 +58,17 @@ def test_hosting_capacity_endpoint_returns_curve():
     assert "sweep" in body
     assert "hosting_capacity_pct" in body
     assert len(body["sweep"]) == 5  # 0, 25, 50, 75, 100
+
+
+def test_daily_profile_endpoint_returns_24_hours():
+    body = client.get("/daily-profile", params={"kind": "solar", "adoption_pct": 50}).json()
+    assert len(body["hours"]) == 24
+    assert "worst_hour" in body
+
+
+def test_annual_profile_endpoint_returns_12_months():
+    body = client.get("/annual-profile", params={"kind": "solar", "adoption_pct": 100}).json()
+    assert len(body["months"]) == 12
+    assert "worst_month" in body
+    assert len(body["buses"]) == 33
+    assert len(body["lines"]) == 32

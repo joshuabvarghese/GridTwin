@@ -5,14 +5,21 @@ Builds the IEEE 33-bus feeder from CIM objects (cim_network.py) and
 converts it to pandapower (converter.py), then exposes it as a NetworkX
 graph with helpers for adding DERs and running power flow. Everything
 else (API, frontend) only talks to this class.
+
+The CIM model itself comes from either source, chosen by
+_load_cim_network(): a hardcoded local build by default, or a live EWB
+server if GRIDTWIN_EWB_HOST is set (ewb_client.py). converter.py can't
+tell the two apart - it only ever reads a NetworkService.
 """
 from __future__ import annotations
+import os
 import pandapower as pp
 import networkx as nx
 from dataclasses import dataclass
 
 import cim_network
 import converter
+import ewb_client
 import ieee33_data
 import geo
 
@@ -32,10 +39,10 @@ class Feeder:
         # (~0.90 pu at full load), so we scale load down to start the
         # feeder healthy - DER adoption is what pushes it into warning
         # /violation territory.
-        ns, _source = cim_network.build_cim_network()
-        self.net = converter.cim_to_pandapower(
-            ns, vn_kv=ieee33_data.VN_KV, base_mva=ieee33_data.BASE_MVA,
-        )
+        ns, _source = self._load_cim_network()
+        vn_kv = float(os.environ.get("GRIDTWIN_EWB_VN_KV", ieee33_data.VN_KV))
+        base_mva = float(os.environ.get("GRIDTWIN_EWB_BASE_MVA", ieee33_data.BASE_MVA))
+        self.net = converter.cim_to_pandapower(ns, vn_kv=vn_kv, base_mva=base_mva)
         self.net.load["p_mw"] *= load_scale
         self.net.load["q_mvar"] *= load_scale
         self._baseline_loads = self.net.load[["bus", "p_mw", "q_mvar"]].copy()
@@ -48,6 +55,19 @@ class Feeder:
         # Cosmetic lat/lon layout for the map view, computed once from
         # the (fixed) topology. Never touches the power-flow model.
         self._geo_coords = geo.compute_synthetic_coordinates(self.graph)
+
+    @staticmethod
+    def _load_cim_network():
+        """Build the IEEE 33-bus CIM model locally (default), or fetch
+        a feeder from a live EWB server if GRIDTWIN_EWB_HOST is set -
+        see ewb_client.py and README.md."""
+        host = os.environ.get("GRIDTWIN_EWB_HOST")
+        if not host:
+            return cim_network.build_cim_network()
+        feeder_mrid = os.environ.get("GRIDTWIN_EWB_FEEDER_MRID", "gridtwin-feeder")
+        port = int(os.environ.get("GRIDTWIN_EWB_PORT", "50051"))
+        token = os.environ.get("GRIDTWIN_EWB_TOKEN")
+        return ewb_client.fetch_feeder(host, feeder_mrid, port=port, token=token), None
 
     def _build_graph(self) -> nx.Graph:
         g = nx.Graph()
